@@ -1,0 +1,16 @@
+[Unit]
+Description=Notebase Server (RAG note-taking CLI)
+After=network.target
+
+[Service]
+Type=simple
+User=%u
+WorkingDirectory=%h
+ExecStart=/home/otix/.cargo/bin/notebase serve
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

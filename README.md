@@ -9,7 +9,7 @@
 ### 架构
 - **单进程 + 后台守护进程（daemon）**：前台CLI接受命令后立即退出，向量计算、模型推理等耗时操作由后台daemon异步处理。
 - **进程间通信（IPC）**：
-  - Unix（Linux/macOS）：Unix domain sockets（`/tmp/notebase.sock`）
+  - Unix（Linux/macOS）：Unix domain sockets（`~/.config/notebase/notebase.sock`）
   - Windows：Named pipes（`\\.\pipe\notebase`）
   - 使用 `interprocess` 库实现跨平台抽象，统一为双工字节流协议。
 - **通信协议**：简单的二进制协议（长度前缀 + JSON/MessagePack），支持请求‑响应与异步通知。
@@ -48,6 +48,26 @@ nb delete <id>            # 删除笔记
 nb serve                  # 启动后台daemon（若未运行）
 nb status                 # 查看daemon状态
 nb stop                   # 停止daemon
+```
+
+### Systemd 服务（Linux）
+
+```bash
+# 复制 service 文件到用户目录
+mkdir -p ~/.config/systemd/user
+cp notebase.service ~/.config/systemd/user/
+
+# 启动服务
+systemctl --user start notebase
+
+# 开机自启
+systemctl --user enable notebase
+
+# 查看状态
+systemctl --user status notebase
+
+# 停止服务
+systemctl --user stop notebase
 ```
 
 ### 移动端部署考虑
