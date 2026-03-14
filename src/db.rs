@@ -1,6 +1,7 @@
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 pub const VECTOR_DIMENSION: usize = 2560;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -128,6 +129,7 @@ impl Database {
         Ok(rows > 0)
     }
 
+    #[allow(dead_code)]
     pub fn add_embedding(&self, note_id: i64, vector: &[f32]) -> Result<i64> {
         let vector_bytes: Vec<u8> = vector.iter().flat_map(|f| f.to_le_bytes()).collect();
 
@@ -138,6 +140,7 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    #[allow(dead_code)]
     pub fn get_embedding(&self, note_id: i64) -> Result<Option<Embedding>> {
         let mut stmt = self
             .conn
@@ -186,6 +189,7 @@ impl Database {
         Ok(embeddings)
     }
 
+    #[allow(dead_code)]
     pub fn delete_embedding(&self, note_id: i64) -> Result<bool> {
         let rows = self.conn.execute(
             "DELETE FROM embeddings WHERE note_id = ?1",
@@ -209,6 +213,81 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 
     dot / (norm_a * norm_b)
+}
+
+#[derive(Debug)]
+pub struct SearchResult {
+    pub note: Note,
+    pub similarity: f32,
+}
+
+impl Database {
+    #[allow(dead_code)]
+    pub async fn generate_note_embedding(
+        &self,
+        note_id: i64,
+        content: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::embedding::generate_embeddings;
+
+        let embeddings = generate_embeddings(&[content]).await?;
+
+        if embeddings.is_empty() {
+            return Err("No embedding generated".into());
+        }
+
+        self.add_embedding(note_id, &embeddings[0])?;
+        Ok(())
+    }
+
+    pub async fn search_notes(
+        &self,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+        use crate::embedding::generate_embeddings;
+
+        let query_embedding = generate_embeddings(&[query]).await?;
+
+        if query_embedding.is_empty() {
+            return Err("Failed to generate query embedding".into());
+        }
+
+        let embeddings = self.get_all_embeddings()?;
+        let notes_map: std::collections::HashMap<i64, Note> = embeddings
+            .iter()
+            .filter_map(|e| {
+                self.get_note(e.note_id)
+                    .ok()
+                    .flatten()
+                    .map(|note| (e.note_id, note))
+            })
+            .collect();
+
+        let mut results: Vec<(i64, f32)> = embeddings
+            .iter()
+            .map(|emb| {
+                let sim = cosine_similarity(&query_embedding[0], &emb.vector);
+                (emb.note_id, sim)
+            })
+            .filter(|(_, sim)| *sim > 0.0)
+            .collect();
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        results.truncate(top_k);
+
+        let search_results = results
+            .into_iter()
+            .filter_map(|(note_id, similarity)| {
+                notes_map.get(&note_id).map(|note| SearchResult {
+                    note: note.clone(),
+                    similarity,
+                })
+            })
+            .collect();
+
+        Ok(search_results)
+    }
 }
 
 #[cfg(test)]
