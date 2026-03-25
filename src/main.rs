@@ -11,8 +11,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 fn get_db_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let config_dir = PathBuf::from(home).join(".config").join("notebase");
+    let config_dir = if cfg!(windows) {
+        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(appdata).join("notebase")
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home).join(".config").join("notebase")
+    };
     std::fs::create_dir_all(&config_dir).ok();
     config_dir.join("notebase.db")
 }
@@ -21,52 +26,67 @@ fn main() {
     let cli = Cli::parse();
     let db_path = get_db_path();
 
-    match cli.command {
-        cli::Command::Serve => {
-            if is_server_running() {
-                println!("Server is already running");
-                return;
-            }
-            if let Err(e) = server::start_server(db_path.to_str().unwrap()) {
-                eprintln!("Failed to start server: {}", e);
-                std::process::exit(1);
-            }
-        }
-        cli::Command::Status => {
-            if is_server_running() {
-                let args = HashMap::new();
-                if let Err(e) = send_command_and_print_result("status", args) {
-                    if e.contains("Connection refused") {
-                        println!("Server not responding, removing stale socket...");
-                        let _ = std::fs::remove_file(server::get_socket_path());
-                        println!("Server is not running");
-                    } else {
-                        eprintln!("{}", e);
-                    }
+    #[cfg(unix)]
+    {
+        match cli.command {
+            cli::Command::Serve => {
+                if is_server_running() {
+                    println!("Server is already running");
+                    return;
                 }
-            } else {
-                println!("Server is not running");
-            }
-        }
-        cli::Command::Stop => {
-            if is_server_running() {
-                let args = HashMap::new();
-                if let Err(e) = send_command_and_print_result("stop", args) {
-                    if e.contains("Connection refused") {
-                        println!("Server not responding, removing stale socket...");
-                        let _ = std::fs::remove_file(server::get_socket_path());
-                    } else {
-                        eprintln!("{}", e);
-                    }
+                if let Err(e) = server::start_server(db_path.to_str().unwrap()) {
+                    eprintln!("Failed to start server: {}", e);
+                    std::process::exit(1);
                 }
-            } else {
-                println!("Server is not running");
+            }
+            cli::Command::Status => {
+                if is_server_running() {
+                    let args = HashMap::new();
+                    if let Err(e) = send_command_and_print_result("status", args) {
+                        if e.contains("Connection refused") {
+                            println!("Server not responding, removing stale socket...");
+                            let _ = std::fs::remove_file(server::get_socket_path());
+                            println!("Server is not running");
+                        } else {
+                            eprintln!("{}", e);
+                        }
+                    }
+                } else {
+                    println!("Server is not running");
+                }
+            }
+            cli::Command::Stop => {
+                if is_server_running() {
+                    let args = HashMap::new();
+                    if let Err(e) = send_command_and_print_result("stop", args) {
+                        if e.contains("Connection refused") {
+                            println!("Server not responding, removing stale socket...");
+                            let _ = std::fs::remove_file(server::get_socket_path());
+                        } else {
+                            eprintln!("{}", e);
+                        }
+                    }
+                } else {
+                    println!("Server is not running");
+                }
+            }
+            _ => {
+                if is_server_running() {
+                    handle_via_server(&cli);
+                } else {
+                    handle_local(&cli, &db_path);
+                }
             }
         }
-        _ => {
-            if is_server_running() {
-                handle_via_server(&cli);
-            } else {
+    }
+
+    #[cfg(not(unix))]
+    {
+        match cli.command {
+            cli::Command::Serve | cli::Command::Status | cli::Command::Stop => {
+                println!("Server functionality is not supported on Windows");
+            }
+            _ => {
                 handle_local(&cli, &db_path);
             }
         }
@@ -199,16 +219,48 @@ fn handle_local(cli: &Cli, db_path: &Path) {
             }
         }
         cli::Command::Serve => {
-            println!("Starting server...");
-            if let Err(e) = server::start_server(db_path.to_str().unwrap()) {
-                eprintln!("Failed to start server: {}", e);
+            #[cfg(unix)]
+            {
+                println!("Starting server...");
+                if let Err(e) = server::start_server(db_path.to_str().unwrap()) {
+                    eprintln!("Failed to start server: {}", e);
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                println!("Server functionality is not supported on Windows");
             }
         }
         cli::Command::Status => {
-            println!("Server is not running");
+            #[cfg(unix)]
+            {
+                if is_server_running() {
+                    println!("Server is running");
+                } else {
+                    println!("Server is not running");
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                println!("Server functionality is not supported on Windows");
+            }
         }
         cli::Command::Stop => {
-            println!("Server is not running");
+            #[cfg(unix)]
+            {
+                if is_server_running() {
+                    let args = HashMap::new();
+                    if let Err(e) = send_command_and_print_result("stop", args) {
+                        eprintln!("{}", e);
+                    }
+                } else {
+                    println!("Server is not running");
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                println!("Server functionality is not supported on Windows");
+            }
         }
     }
 }

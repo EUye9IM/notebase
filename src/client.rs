@@ -1,12 +1,16 @@
-use crate::server::{Request, Response, get_socket_path};
+use crate::server::{get_socket_path, Request, Response};
 use std::collections::HashMap;
 use std::io::Write;
+
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
+#[cfg(unix)]
 pub fn is_server_running() -> bool {
     get_socket_path().exists()
 }
 
+#[cfg(unix)]
 pub fn send_request(command: &str, args: HashMap<String, String>) -> Result<Response, String> {
     let socket_path = get_socket_path();
 
@@ -37,6 +41,7 @@ pub fn send_request(command: &str, args: HashMap<String, String>) -> Result<Resp
     Ok(response)
 }
 
+#[cfg(unix)]
 pub fn send_command_and_print(command: &str, args: HashMap<String, String>) {
     if let Err(e) = send_command_and_print_result(command, args) {
         eprintln!("{}", e);
@@ -44,6 +49,7 @@ pub fn send_command_and_print(command: &str, args: HashMap<String, String>) {
     }
 }
 
+#[cfg(unix)]
 pub fn send_command_and_print_result(
     command: &str,
     args: HashMap<String, String>,
@@ -61,4 +67,23 @@ pub fn send_command_and_print_result(
         }
         Err(e) => Err(format!("Failed to communicate with server: {}", e)),
     }
+}
+
+#[cfg(not(unix))]
+pub fn is_server_running() -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+pub fn send_command_and_print(_command: &str, _args: HashMap<String, String>) {
+    eprintln!("Server is not supported on this platform");
+    std::process::exit(1);
+}
+
+#[cfg(not(unix))]
+pub fn send_command_and_print_result(
+    _command: &str,
+    _args: HashMap<String, String>,
+) -> Result<(), String> {
+    Err("Server is not supported on this platform".to_string())
 }

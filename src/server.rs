@@ -1,12 +1,13 @@
+#[cfg(unix)]
 use crate::db::Database;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 
+#[cfg(unix)]
 pub const SOCKET_NAME: &str = "notebase.sock";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,11 +23,13 @@ pub struct Response {
     pub error: Option<String>,
 }
 
+#[cfg(unix)]
 pub struct ServerState {
     pub db: Database,
     pub runtime: Runtime,
 }
 
+#[cfg(unix)]
 pub fn get_socket_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home)
@@ -35,7 +38,10 @@ pub fn get_socket_path() -> PathBuf {
         .join(SOCKET_NAME)
 }
 
+#[cfg(unix)]
 pub fn start_server(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::os::unix::net::UnixListener;
+
     let socket_path = get_socket_path();
 
     if socket_path.exists() {
@@ -101,6 +107,7 @@ pub fn start_server(db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+#[cfg(unix)]
 fn handle_request(request: Request, state: &Arc<Mutex<ServerState>>) -> Response {
     let state = match state.lock() {
         Ok(s) => s,
@@ -289,4 +296,14 @@ fn handle_request(request: Request, state: &Arc<Mutex<ServerState>>) -> Response
             error: Some(format!("Unknown command: {}", request.command)),
         },
     }
+}
+
+#[cfg(not(unix))]
+pub fn get_socket_path() -> PathBuf {
+    PathBuf::new()
+}
+
+#[cfg(not(unix))]
+pub fn start_server(_db_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    Err("Server is not supported on this platform".into())
 }

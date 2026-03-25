@@ -4,7 +4,7 @@ This document provides guidelines for AI agents working on the notebase codebase
 
 ## Project Overview
 
-Notebase is a Rust-based note-taking CLI application with RAG (Retrieval-Augmented Generation) capabilities. It uses SQLite for storage, clap for CLI parsing, and serde for serialization.
+Notebase is a Rust-based note-taking CLI application with RAG (Retrieval-Augmented Generation) capabilities. It uses SQLite for storage, clap for CLI parsing, and serde for serialization. The server runs as a daemon using Unix domain sockets for IPC.
 
 ## Build Commands
 
@@ -50,7 +50,7 @@ cargo test
 # Run tests with output
 cargo test -- --nocapture
 
-# Run a single test by name
+# Run a single test by name (partial match)
 cargo test test_database_operations
 cargo test test_cosine_similarity
 cargo test test_add_command
@@ -86,7 +86,7 @@ RUST_LOG=debug cargo test
 - **Functions & Methods**: snake_case (`get_db_path`, `add_note`)
 - **Variables**: snake_case (`db_path`, `note_id`)
 - **Constants**: SCREAMING_SNAKE_CASE (`VECTOR_DIMENSION`)
-- **Modules**: snake_case (`cli`, `db`)
+- **Modules**: snake_case (`cli`, `db`, `client`, `server`)
 
 ### Type Annotations
 
@@ -99,6 +99,7 @@ RUST_LOG=debug cargo test
 - Use `rusqlite::Result<T>` for database operations
 - Use `?` operator for error propagation
 - Use `expect()` only for unrecoverable errors (e.g., CLI parsing)
+- For client/server communication: return `Result` instead of exiting, allow caller to handle cleanup
 
 ### Structs & Enums
 
@@ -126,26 +127,19 @@ RUST_LOG=debug cargo test
 - Place unit tests in `#[cfg(test)]` modules within each source file
 - Use descriptive test names: `test_add_command`, `test_database_operations`
 - Clean up test files using `/tmp/` or temp directories
-- Example:
-  ```rust
-  #[cfg(test)]
-  mod tests {
-      use super::*;
-      
-      #[test]
-      fn test_cosine_similarity() {
-          let a = vec![1.0, 0.0, 0.0];
-          let b = vec![1.0, 0.0, 0.0];
-          assert!((cosine_similarity(&a, &b) - 1.0).abs() < 1e-6);
-      }
-  }
-  ```
 
 ### CLI Design (using clap)
 
 - Use `#[derive(Parser)]` for CLI struct
 - Use `#[derive(Subcommand)]` for commands
 - Add doc comments for command help text
+
+### Server Socket Handling
+
+- Socket path: `~/.config/notebase/notebase.sock`
+- When server stops: send response to client first, then delete socket
+- When client fails to connect: check for stale socket and remove it
+- Use `get_socket_path()` from `server` module to get socket path
 
 ## Project Structure
 
@@ -154,7 +148,11 @@ notebase/
 ├── src/
 │   ├── main.rs       # Entry point, command dispatch
 │   ├── cli.rs        # CLI argument parsing
-│   └── db.rs         # Database operations, models
+│   ├── db.rs         # Database operations, models
+│   ├── client.rs     # Unix socket client for IPC
+│   ├── server.rs     # Unix socket server daemon
+│   └── embedding.rs  # Embedding generation
+├── notebase.service  # Systemd service file
 ├── Cargo.toml        # Project configuration
 └── Cargo.lock        # Dependency lock file
 ```
