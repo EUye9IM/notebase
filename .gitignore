@@ -6,8 +6,13 @@ build/
 .flutter-plugins-dependencies
 .metadata
 
-# Rust
-rust/target/
+# Flutter 平台生成物
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+**/android/local.properties
+**/android/.gradle/
+*.iml
 
 # IDE
 .idea/
