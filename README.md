@@ -1,128 +1,112 @@
 # Notebase
 
-本地优先的多媒体笔记数据库，支持语义搜索与自动分类。
+本地优先的快速笔记本：打开即记，一条一档（文字 / 语音 / 拍照），按笔记本分组，完全离线。
 
-> 当前阶段聚焦应用框架：零外部依赖、完全离线的本地笔记应用，PC 桌面端 + Android 双端交付。
+> 当前阶段（初版）：只做**文本条目**的完整闭环——笔记本、时间流、本地搜索，仅 Linux 桌面端；UI 与核心分离，为多平台留好分层。多媒体与 AI 整体后置。
+>
+> 设计文档：[docs/ui-design.mdx](docs/ui-design.mdx)（交互设计与验收标准）· [docs/dev-plan.md](docs/dev-plan.md)（开发计划与里程碑）
 
 ## 技术栈
 
 | 层 | 选型 | 说明 |
 |----|------|------|
-| UI | Flutter | PC 桌面端（Windows / macOS / Linux）+ Android，一套代码 |
-| 数据库 | SQLite（`sqlite3` 包） | Dart FFI 直连原生 SQLite，FTS5 / WAL / 扩展加载全支持，零依赖 |
-| 状态管理 | Phase 1 内选型 | 框架搭建时确定（倾向 Riverpod） |
-| 网络 / AI | 暂不引入 | 无任何网络调用与模型，整体后置，见阶段设计与架构决策 |
+| UI | Flutter | Linux 桌面端先行；Android 工程已预留，多平台后置 |
+| 核心 | 纯 Dart，零 Flutter 依赖 | 模型 / 存储 / 搜索 / 状态，全部在 `lib/core/`，可脱离 Flutter 测试与复用 |
+| 存储 | JSON 文件（`Storage` 接口收口） | `notebooks.json` + `nb_<id>.json` + `prefs.json`；SQLite 迁移后置（M7） |
+| 状态 | 自实现最小 `Listenable` | 不依赖 flutter/foundation，core 保持纯净 |
+| 多媒体 | 后置（M6） | 录音 / 播放 / 拍照 / 相册导入，届时验证 Linux 插件成熟度 |
+| 网络 / AI | 暂不引入 | 后置到 Phase 3；转写 / 摘要字段已预留，先支持手动编辑 |
 
 ## 阶段设计
 
-### Phase 1 — 应用框架与本地笔记（🚧 当前）
+### Phase 1 — 文本速记闭环（🚧 当前）
 
-**目标：** 搭好双端应用框架，交付零外部依赖、完全离线可用的本地笔记应用。
+**目标：** Linux 桌面端交付可日常使用的纯文本快速笔记应用。
 
 **包含：**
 
-- 项目骨架：一套 Flutter 代码同时构建 PC 桌面端（Windows / macOS / Linux）与 Android
-- 应用框架：路由、导航骨架（宽屏侧边栏 / 窄屏底部导航）、主题、状态管理
-- 本地 SQLite：笔记的创建、编辑、删除、列表（SQL 访问收口到 repository 层）
-- 本地搜索：基于 SQL LIKE 的简单检索（FTS5 后置）
-- 设置页：主题等本地偏好
+- 核心层：`Entry` / `Notebook` 模型（预留媒体字段）、JSON 持久化、包含匹配搜索
+- 时间流：按天分组的追加式时间线 + 常驻底部输入栏，文本 2 步录入（宽屏 Enter 1 步）
+- 笔记本：default 永存不可删；创建 / 切换 / 重命名 / 删除（条目并入 default）
+- 搜索：当前笔记本内，原地过滤，命中正文
+- 条目：编辑（底 sheet，无确认）、删除（确认 + 5s 撤销）
+- 主题：跟随系统 / 浅色 / 深色
 
-**不包含：**
+**不包含：** 拍照、录音、AI、同步、Android 构建。
 
-- 任何网络调用与 AI 模型（嵌入、语义搜索、自动分类、图片描述全部后置）
-- 图片 / 音频 / 视频附件
-- 标签管理
-- 跨设备同步
+### Phase 2 — 多媒体与存储升级
 
-### Phase 2 — 富内容与本地增强
-
-- FTS5 全文检索（含中文分词方案）
-- 标签管理
-- 图片附件：导入、缩略图（纯本地处理）
-- 拍照 / 相册导入（Android）
-- 数据导出（Markdown / JSON）
+- 录音（record / 播放）、拍照 / 相册导入、媒体文件管理
+- 转写 / 摘要的手动编辑（模型字段已预留）
+- 存储迁移 SQLite（`sqflite` + `sqflite_common_ffi`）+ FTS5 全文检索
+- 数据导出（JSON / Markdown）
 
 ### Phase 3 — AI 能力（远程 API）
 
-- 远程 AI API 配置（OpenAI 兼容 endpoint，支持 OpenAI / 智谱 / 硅基流动等）
-- 文本嵌入 + 余弦相似度语义搜索（brute-force 起步，升级 sqlite-vec）
-- 全文检索与向量搜索混排
-- 零样本自动标签 / 分类
-- 图片描述（Vision API）→ 与文字统一搜索空间
-- 嵌入模型版本管理、离线回填队列（local-first 核心约束）
+- 录音自动转写 → 摘要，照片自动描述：异步生成、失败可重试，绝不阻塞录入；**用户编辑过的内容视为定稿**，不被自动生成覆盖
+- 文本嵌入 + 语义搜索、全文与向量混排、自动标签
+- OpenAI 兼容 endpoint（OpenAI / 智谱 / 硅基流动等）
 
-### Phase 4 — 本地模型
+### Phase 4+ — 本地模型 / 跨设备同步（远期）
 
-- Ollama 后端（通过局域网连接本地算力）
-- ONNX 小模型内置回退（离线可用）
-- `Embedder` 抽象类多后端自动切换（Ollama 走 HTTP；本地 ONNX 优先评估 sherpa-onnx / onnxruntime 的 Flutter 插件）
-
-### Phase 5 — 扩展媒体类型
-
-- 音频：本地 Whisper 转录 → 文本嵌入
-- 视频：关键帧抽取 → 图片嵌入（性能不足时按「架构决策」引入 Rust 模块）
-
-### Phase 6 — 跨设备同步
-
-- CRDT 数据同步
-- 可选同步服务
+- Ollama / ONNX 本地推理回退；CRDT 同步
 
 ## 架构决策
 
+### UI 与核心分离
+
+`core/` 纯 Dart，禁止 import 任何 `package:flutter/**`；`ui/ → core/` 单向依赖。收益：核心逻辑可用纯 Dart 测试（快、稳）；未来扩展平台（Android、其他前端）或替换 UI 框架时核心不动。平台能力（应用目录、权限）由 UI 层取得后注入 core。
+
 ### 零外部依赖起步
 
-当前阶段无任何网络调用、无 AI 模型、无第三方服务，无需账号与 API key，应用完全离线可用。AI 能力整体后置到 Phase 3，并保持可插拔：搜索走统一接口，LIKE 实现与未来的向量实现可替换。
+无网络调用、无 AI、无账号，完全离线。AI 后置但可插拔：搜索、摘要生成走统一接口，手动实现与自动实现可替换。
 
 ### 纯 Dart 先行，Rust 按需引入
 
-业务逻辑全部用 Dart 实现：SQLite 经 `sqlite3` 包 FFI 直连原生 C 库（与 rusqlite 同一底座），schema、FTS5、数据文件与任何未来 Rust 方案完全通用；SQL 访问收口在 repository 层。
-
-Rust 不排除，但只为单一重负载模块引入（经 flutter_rust_bridge），命中以下任一条件时再评估：
-
-1. 本地 ONNX / Whisper 推理在现有 Flutter 插件（sherpa-onnx、onnxruntime）下性能不足；
-2. 视频 / 音频管线需要 Rust 级别的性能或内存控制；
-3. 向量规模超过 10 万条且 sqlite-vec 扩展不够用，需要自研索引。
-
-数据库永远留在 Dart 侧，引入 Rust 模块不需要迁移数据层。
+业务逻辑全部 Dart；SQLite 经 `sqflite` 走 FFI。Rust 只在本地推理 / 媒体管线性能不足时再评估（flutter_rust_bridge），数据库永远留在 Dart 侧。
 
 ## 当前阶段待办（Phase 1）
 
-- [x] 项目脚手架：Flutter 模板，Linux 桌面端构建运行验证（Android 构建待装 SDK 后验证）
-- [ ] 状态管理选型，搭建路由与导航骨架（宽屏侧边栏 / 窄屏底部导航）
-- [ ] 数据库层：schema 与迁移、笔记 CRUD（SQL 访问收口到 repository 层）
-- [ ] 核心页面：首页列表、笔记编辑器、搜索页（LIKE）、设置页
-- [ ] 本地偏好存储：主题等应用设置
+- [ ] M1 核心层：模型 / JSON 存储 / 搜索 + 纯 Dart 单测（替换旧 `store.dart`，废弃 `shared_preferences`）
+- [ ] M2 时间流 + 文本录入：宽 / 窄应用壳、按天分组、空态、自动滚底
+- [ ] M3 笔记本管理：切换 / 新建 / 重命名 / 删除（条目并入 default）
+- [ ] M4 搜索 + 条目编辑 / 删除（撤销）
+- [ ] M5 打磨：回到最新、键盘行为、边界情况、release 自测
+- [ ] 全量验收：analyze 0 issue + 测试绿 + 操作步数表核对
 
 ## 开发
 
 ### 环境要求
 
-- Flutter SDK（建议当前 stable）
-- Android 构建需 Android Studio / Android SDK
+- Flutter SDK（stable）
+- Linux 桌面构建需 GTK / Ninja 工具链（`flutter doctor` 自查）
+- Android 后置（SDK 未装，工程已预留）
 
 ### 快速启动
 
 ```bash
 flutter pub get
-flutter run -d windows   # 或 macos / linux / android
+flutter run -d linux
+flutter test          # core 层为纯 Dart 测试，不依赖桌面环境
 ```
 
 ### 项目结构
 
 ```
 notebase/
-├── lib/                    # Dart 应用
-│   ├── db/                 # schema、迁移、repository 层（SQL 访问收口）
-│   ├── models/             # 数据模型（Note 等）
-│   ├── screens/            # 页面（列表、编辑器、搜索、设置）
-│   ├── widgets/            # 组件
-│   ├── services/           # 本地服务（偏好存储等）
-│   └── main.dart           # 入口：主题、路由、导航骨架
-├── android/                # Android 工程
-├── windows/ macos/ linux/  # 桌面工程
-├── pubspec.yaml            # Flutter 依赖配置
-└── README.md
+├── lib/
+│   ├── core/               # 纯 Dart：模型、状态、Storage 接口与 JSON 实现
+│   └── ui/                 # Flutter：应用壳、时间流、输入栏、搜索、设置
+├── docs/
+│   ├── ui-design.mdx       # 交互设计（含 §11 操作步数验收表）
+│   └── dev-plan.md         # 开发计划（里程碑 M1–M5，多媒体后置）
+├── test/                   # 测试（core 单测不 pump widget）
+├── android/                # Android 工程（后置，已预留）
+├── linux/                  # Linux 桌面工程（windows / macos 已裁剪，需要时 flutter create 补回）
+└── pubspec.yaml
 ```
+
+> 注：`lib/main.dart` + `lib/store.dart` 是 Phase 0 的旧三 Tab 原型，M1/M2 期间按上述结构替换。
 
 ## License
 
