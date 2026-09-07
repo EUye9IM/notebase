@@ -67,7 +67,7 @@
 
 ## 当前阶段待办（Phase 1）
 
-- [ ] M1 核心层：模型 / JSON 存储 / 搜索 + 纯 Dart 单测（替换旧 `store.dart`，废弃 `shared_preferences`）
+- [x] M1 核心层：模型 / JSON 存储 / 搜索 + 纯 Dart 单测（替换旧 `store.dart`，废弃 `shared_preferences`）
 - [ ] M2 时间流 + 文本录入：宽 / 窄应用壳、按天分组、空态、自动滚底
 - [ ] M3 笔记本管理：切换 / 新建 / 重命名 / 删除（条目并入 default）
 - [ ] M4 搜索 + 条目编辑 / 删除（撤销）
