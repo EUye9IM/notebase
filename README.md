@@ -95,18 +95,21 @@ flutter test          # core 层为纯 Dart 测试，不依赖桌面环境
 ```
 notebase/
 ├── lib/
-│   ├── core/               # 纯 Dart：模型、状态、Storage 接口与 JSON 实现
-│   └── ui/                 # Flutter：应用壳、时间流、输入栏、搜索、设置
+│   ├── core/               # 纯 Dart：model / store / listenable + storage 接口与 JSON 实现
+│   ├── ui/                 # Flutter：app / home / stream_view / input_bar /
+│   │                       #          notebook_list / settings_view + listenable_bridge
+│   └── main.dart           # 入口：注入应用目录 → 加载 AppStore → 启动
 ├── docs/
 │   ├── ui-design.mdx       # 交互设计（含 §11 操作步数验收表）
 │   └── dev-plan.md         # 开发计划（里程碑 M1–M5，多媒体后置）
-├── test/                   # 测试（core 单测不 pump widget）
+├── test/                   # core 单测（纯 Dart，不 pump widget）+ ui widget 测试
 ├── android/                # Android 工程（后置，已预留）
 ├── linux/                  # Linux 桌面工程（windows / macos 已裁剪，需要时 flutter create 补回）
 └── pubspec.yaml
 ```
 
-> 注：`lib/main.dart` + `lib/store.dart` 是 Phase 0 的旧三 Tab 原型，M1/M2 期间按上述结构替换。
+> `docs/dev-plan.md` §2 有逐文件的详细分层说明；`test/core/architecture_test.dart`
+> 会校验 `lib/core/**` 不出现 `package:flutter`，架构不变式由测试守住。
 
 ## License
 

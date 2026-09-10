@@ -106,7 +106,13 @@ class AppStore extends CoreChangeNotifier {
     }
     final moved = await _loadEntriesOf(id);
     final defaults = await _loadEntriesOf(Notebook.defaultId);
-    final merged = [...defaults, ...moved];
+    // 归属重写：并入 default 的条目必须改 notebookId，否则违反
+    // 「一条条目恰好属于一个笔记本」不变式（ui-design §2）。
+    final merged = [
+      ...defaults,
+      for (final entry in moved)
+        entry.copyWith(notebookId: Notebook.defaultId),
+    ];
     _sort(merged);
     _entries[Notebook.defaultId] = merged;
     await _storage.saveEntries(Notebook.defaultId, merged);

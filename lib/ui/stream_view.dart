@@ -49,8 +49,7 @@ class _StreamViewState extends State<StreamView> {
     final rows = <Widget>[];
     DateTime? lastDay;
     for (final entry in entries) {
-      final day = DateTime(
-          entry.createdAt.year, entry.createdAt.month, entry.createdAt.day);
+      final day = _calendarDay(entry.createdAt);
       if (lastDay == null || day != lastDay) {
         lastDay = day;
         rows.add(_DayHeader(date: entry.createdAt));
@@ -82,7 +81,7 @@ class _DayHeader extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Text(
-        _dayLabel(date),
+        dayLabel(date),
         textAlign: TextAlign.center,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -121,15 +120,20 @@ class _EntryRow extends StatelessWidget {
   }
 }
 
-String _dayLabel(DateTime d) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final that = DateTime(d.year, d.month, d.day);
-  final diff = today.difference(that).inDays;
+/// 自然日（UTC 零点）表示，仅用于分组比较与天数差：
+/// 夏令时切换日只有 23 小时，用本地零点相减会被截断成 0 天，把「昨天」
+/// 错标成「今天」；UTC 日不存在跳变，跨时区结果一致。
+DateTime _calendarDay(DateTime d) =>
+    DateTime.utc(d.year, d.month, d.day);
+
+/// 组头文案：今天 / 昨天 / M月d日（跨年带年份）。[now] 可注入以便测试。
+String dayLabel(DateTime date, {DateTime? now}) {
+  final current = now ?? DateTime.now();
+  final diff = _calendarDay(current).difference(_calendarDay(date)).inDays;
   if (diff == 0) return '今天';
   if (diff == 1) return '昨天';
-  if (d.year == now.year) return '${d.month}月${d.day}日';
-  return '${d.year}年${d.month}月${d.day}日';
+  if (date.year == current.year) return '${date.month}月${date.day}日';
+  return '${date.year}年${date.month}月${date.day}日';
 }
 
 String _timeLabel(DateTime t) {

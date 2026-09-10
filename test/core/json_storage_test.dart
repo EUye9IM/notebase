@@ -76,5 +76,42 @@ void main() {
       final raw = await File('${dir.path}/prefs.json').readAsString();
       expect(raw, contains('\n  "theme"'));
     });
+
+    // M3 评审 P1 回归：固定临时文件名 + 无串行化时，并发写会在 rename
+    // 处抛 PathNotFoundException（实测 120/120 轮），且可能静默丢数据。
+    test('并发写同一文件：不抛错且按提交顺序串行生效', () async {
+      final all = [
+        for (var i = 1; i <= 20; i++)
+          Entry(
+            id: '$i',
+            notebookId: 'default',
+            type: EntryType.text,
+            text: 't$i',
+            createdAt: DateTime.fromMillisecondsSinceEpoch(i),
+          ),
+      ];
+      await Future.wait([
+        for (var i = 1; i <= 20; i++)
+          storage.saveEntries('default', all.take(i).toList()),
+      ]);
+      // 最后一次提交的写入最后落地 → 全量 20 条，且无并发异常。
+      expect(await storage.loadEntries('default'), hasLength(20));
+    });
+
+    // 队列毒化回归：前序写失败后，该路径仍必须可写。
+    test('前序写入失败不毒化队列：故障排除后可继续写', () async {
+      final blocked = File('${dir.path}/blocked');
+      await blocked.writeAsString('占位文件：让目录创建失败');
+      final bad = JsonFileStorage(blocked.path);
+
+      await expectLater(
+        bad.savePrefs(const Prefs()),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      await blocked.delete(); // 故障排除，同一实例继续写
+      await bad.savePrefs(const Prefs(theme: ThemeSetting.dark));
+      expect((await bad.loadPrefs()).theme, ThemeSetting.dark);
+    });
   });
 }

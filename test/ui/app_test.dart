@@ -62,4 +62,20 @@ void main() {
     expect(find.text('第一条'), findsOneWidget);
     expect(find.text('第二条'), findsOneWidget);
   });
+
+  // M3 评审 P4 回归：写延迟窗口内连点 ➤ 曾产生两条重复条目。
+  testWidgets('发送重入守卫：写入期间连点 ➤ 只记一条', (tester) async {
+    final store = await AppStore.load(SlowMemoryStorage());
+    await tester.pumpWidget(NotebaseApp(store: store));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '重复风险');
+    await tester.pump(); // 按钮由禁用变可用
+    await tester.tap(find.byIcon(Icons.send_outlined));
+    await tester.tap(find.byIcon(Icons.send_outlined));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(store.entries, hasLength(1));
+    expect(store.entries.single.text, '重复风险');
+  });
 }

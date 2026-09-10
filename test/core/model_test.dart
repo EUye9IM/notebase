@@ -60,6 +60,18 @@ void main() {
       );
     });
 
+    test('copyWith 可改归属（删除笔记本并入 default 时用）', () {
+      final entry = Entry(
+        id: '5',
+        notebookId: 'work',
+        type: EntryType.text,
+        text: '搬家条目',
+        createdAt: _t0,
+      );
+      expect(entry.copyWith(notebookId: 'default').notebookId, 'default');
+      expect(entry.copyWith(text: '改文本').notebookId, 'work'); // 未指定则不变
+    });
+
     test('copyWith 可显式置空（清空转写/摘要 = 删除该字段）', () {
       final entry = Entry(
         id: '4',

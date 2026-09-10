@@ -23,11 +23,13 @@ lib/
 │       └── json_storage.dart  # JSON 文件实现（baseDir 由外部注入）
 └── ui/                        # Flutter 层
     ├── app.dart               # MaterialApp + 主题（偏好驱动）
+    ├── listenable_bridge.dart # core→Flutter 监听桥接（core 零 Flutter 的代价集中处）
     ├── home.dart              # 应用壳：宽屏 / 窄屏布局切换（§3）
     ├── stream_view.dart       # 时间流：按天分组、升序、空态（§4）
     ├── input_bar.dart         # 常驻输入栏，v1 仅文本（§5.1）
-    ├── search_view.dart       # 原地搜索模式（§7）
-    ├── editor_sheet.dart      # 条目编辑底 sheet（§8）
+    ├── notebook_list.dart     # 笔记本切换 / 新建 / 重命名 / 删除（§6，M3）
+    ├── search_view.dart       # 原地搜索模式（§7，M4 待建）
+    ├── editor_sheet.dart      # 条目编辑底 sheet（§8，M4 待建）
     └── settings_view.dart     # 设置：主题
 ```
 
@@ -77,14 +79,16 @@ lib/
 
 - 原地搜索模式：顶栏切换、输入即过滤、结果倒序、N 条结果、无结果态、退出恢复滚动位置（§7）
 - 文本编辑底 sheet：保存无确认、不改 createdAt（§8）
-- 删除：确认弹窗 + toast 撤销 5s
+- 删除：确认弹窗 + toast 撤销 5s（建议 store 层 `deleteEntry` 返回可回滚快照，UI 不自己缓存条目）
 - 验收：搜索 1 步进入 + 即时过滤；删除 3 步（含唯一必要确认）
 
 ### M5 打磨
 
 - 回到最新按钮（上翻超过一屏浮现，§4）
 - 焦点细节：窄屏不自动弹键盘、宽屏自动聚焦（§5.1）
-- §10 边界情况清单逐条核对
+- 键盘行为显式核对：`numpadEnter`（当前只匹配 `enter`）、真实 Linux IM/嵌入层下的 Enter 发送路径（现有覆盖仅 widget 测试，走框架内 key 分发）
+- 启动期数据损坏兜底：`notebooks.json` / `nb_*.json` 解析失败时不 crash（方案见 ui-design §10）
+- §10 边界情况清单逐条核对（含输入框草稿跨笔记本切换的处理决策）
 - Linux release 构建自测 + 操作步数表（§11）全量过一遍
 
 ### 后置（有依赖顺序，不排期）
@@ -101,3 +105,5 @@ lib/
 - **媒体插件 Linux 成熟度**：M6 开始前做一轮 spike（录音→播放→文件落盘），不阻塞文本线。
 - **JSON 全量写的性能上限**：每条变更全量序列化单笔记本文件。触发条件（单本条目过万 / 写入卡顿）出现时提前 M7，不为预防而提前。
 - **旧原型数据**：`shared_preferences` 里的旧笔记为原型数据，M1 直接废弃不迁移；主题偏好重置为默认可接受。
+- **写入并发**（M3 评审后已修）：`JsonFileStorage` 按路径串行化 + 唯一 tmp 名；修前实测并发写 120/120 轮 `PathNotFoundException`、300 轮中 1 轮静默丢数据，回归测试已固化（`json_storage_test.dart`）。
+- **流渲染无虚拟化**：`SingleChildScrollView + Column` 全量构建，条目上千后需换 `ListView.builder`；与「JSON 全量写」同源，触发条件出现时一并处理。

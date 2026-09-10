@@ -20,6 +20,7 @@ class InputBar extends StatefulWidget {
 class _InputBarState extends State<InputBar> {
   final _controller = TextEditingController();
   bool _hasText = false;
+  bool _sending = false;
 
   @override
   void initState() {
@@ -39,10 +40,22 @@ class _InputBarState extends State<InputBar> {
   }
 
   Future<void> _send() async {
+    // 重入守卫：写入期间 ➤ 置灰、再次触发直接返回，
+    // 避免双击 ➤ / Enter 连击产生重复条目（写延迟窗口内最多一条）。
+    if (_sending) return;
     final text = _controller.text;
     if (text.trim().isEmpty) return;
-    await widget.store.addText(text);
-    _controller.clear();
+    setState(() => _sending = true);
+    try {
+      await widget.store.addText(text);
+      if (mounted) _controller.clear();
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      } else {
+        _sending = false;
+      }
+    }
   }
 
   @override
@@ -100,7 +113,7 @@ class _InputBarState extends State<InputBar> {
             IconButton(
               icon: const Icon(Icons.send_outlined),
               tooltip: '发送',
-              onPressed: _hasText ? _send : null,
+              onPressed: _hasText && !_sending ? _send : null,
             ),
           ],
         ),

@@ -87,13 +87,16 @@ class Entry {
   static const _unset = Object();
 
   Entry copyWith({
+    Object? notebookId = _unset,
     Object? text = _unset,
     Object? transcript = _unset,
     Object? summary = _unset,
   }) =>
       Entry(
         id: id,
-        notebookId: notebookId,
+        notebookId: identical(notebookId, _unset)
+            ? this.notebookId
+            : notebookId as String,
         type: type,
         createdAt: createdAt,
         text: identical(text, _unset) ? this.text : text as String?,

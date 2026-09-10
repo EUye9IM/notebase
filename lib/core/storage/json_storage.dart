@@ -13,11 +13,18 @@ import 'storage.dart';
 /// ```
 ///
 /// baseDir 由 UI 层（path_provider）注入，本类不感知平台；
-/// 写入走「临时文件 + rename」保证原子性；文件缺失一律返回空/默认值（首次启动）。
+/// 写入走「唯一临时文件 + rename」保证原子性，同一路径的并发写串行化；
+/// 文件缺失一律返回空/默认值（首次启动）。
 class JsonFileStorage implements Storage {
   JsonFileStorage(this.baseDir);
 
   final String baseDir;
+
+  /// 每路径的写入队列：同一文件的写操作按提交顺序串行执行。
+  /// 固定临时文件名的写法会让并发写入互相抢 rename（PathNotFoundException），
+  /// 这里既串行化又使用唯一 tmp 名，两道保险。
+  static final Map<String, Future<void>> _queues = {};
+  static int _tmpSeq = 0;
 
   Future<void> _ensureDir() async {
     final dir = Directory(baseDir);
@@ -29,9 +36,22 @@ class JsonFileStorage implements Storage {
     return jsonDecode(await file.readAsString());
   }
 
-  Future<void> _write(File file, Object? data) async {
+  Future<void> _write(File file, Object? data) {
+    final key = file.absolute.path;
+    final prev = _queues[key] ?? Future<void>.value();
+    // catchError：前序写入失败不得毒化队列，否则该文件此后永远写不进去。
+    final next =
+        prev.catchError((_) {}).then((_) => _writeNow(file, data));
+    _queues[key] = next;
+    return next.whenComplete(() {
+      // 队列排空即回收，避免 map 随笔记本数量无限增长。
+      if (identical(_queues[key], next)) _queues.remove(key);
+    });
+  }
+
+  Future<void> _writeNow(File file, Object? data) async {
     await _ensureDir();
-    final tmp = File('${file.path}.tmp');
+    final tmp = File('${file.path}.${_tmpSeq++}.tmp');
     await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
     await tmp.rename(file.path);
   }

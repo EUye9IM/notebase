@@ -39,3 +39,16 @@ class MemoryStorage implements Storage {
     _prefs = prefs;
   }
 }
+
+/// 带写延迟的内存 Storage：模拟真实磁盘写窗口，用于发送重入类测试。
+class SlowMemoryStorage extends MemoryStorage {
+  SlowMemoryStorage({this.delay = const Duration(milliseconds: 50)});
+
+  final Duration delay;
+
+  @override
+  Future<void> saveEntries(String notebookId, List<Entry> entries) async {
+    await Future<void>.delayed(delay);
+    return super.saveEntries(notebookId, entries);
+  }
+}

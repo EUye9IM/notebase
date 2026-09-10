@@ -183,6 +183,10 @@ void main() {
       expect(s.currentNotebookId, Notebook.defaultId);
       expect(s.entries.single.text, '搬家条目');
       expect(s.notebooks.map((n) => n.id), [Notebook.defaultId]);
+      // 归属重写（M3 评审 P2 回归）：条目必须改挂到 default
+      expect(s.entries.single.notebookId, Notebook.defaultId);
+      final onDisk = await storage.loadEntries(Notebook.defaultId);
+      expect(onDisk.single.notebookId, Notebook.defaultId);
 
       final again = await reload();
       expect(again.entries.single.text, '搬家条目');
@@ -276,6 +280,15 @@ void main() {
       final s = await reload();
       expect(s.currentNotebookId, 'work');
       expect(s.search('猫').single.id, 'w1');
+    });
+  });
+
+  group('并发写（M3 评审 P1 回归）', () {
+    test('并发 addText 不抛错，内存与磁盘一致', () async {
+      final s = await reload();
+      await Future.wait([s.addText('a'), s.addText('b')]);
+      expect(s.entries, hasLength(2));
+      expect(await storage.loadEntries(Notebook.defaultId), hasLength(2));
     });
   });
 
