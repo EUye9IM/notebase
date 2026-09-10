@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/store.dart';
 import 'input_bar.dart';
+import 'notebook_list.dart';
 import 'settings_view.dart';
 import 'stream_view.dart';
 
@@ -9,7 +10,7 @@ import 'stream_view.dart';
 /// 宽屏（≥720）= 侧栏 + 流头部 + 时间流 + 输入栏；
 /// 窄屏 = 顶栏 + 时间流 + 输入栏。
 ///
-/// 笔记本切换 / 新建 / 重命名 / 删除在 M3 接入，当前侧栏与顶栏仅展示。
+/// 笔记本管理（切换 / 新建 / 重命名 / 删除，ui-design §6）见 notebook_list.dart。
 class HomePage extends StatelessWidget {
   const HomePage({super.key, required this.store});
 
@@ -41,7 +42,26 @@ class HomePage extends StatelessWidget {
       }
       return Scaffold(
         appBar: AppBar(
-          title: Text(store.currentNotebook.name),
+          title: InkWell(
+            onTap: () => showNotebookSwitcher(context, store),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      store.currentNotebook.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.settings_outlined),
@@ -69,27 +89,9 @@ class _Sidebar extends StatelessWidget {
     return SizedBox(
       width: 220,
       child: Column(children: [
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(8),
-            children: [
-              for (final nb in store.notebooks)
-                ListTile(
-                  dense: true,
-                  selected: nb.id == store.currentNotebookId,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  title: Text(
-                    nb.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  // M3：点按切换、长按重命名/删除，底部「＋ 新建」
-                ),
-            ],
-          ),
-        ),
+        Expanded(child: NotebookRows(store: store)),
+        const Divider(height: 1),
+        NewNotebookRow(store: store),
         const Divider(height: 1),
         ListTile(
           dense: true,

@@ -208,6 +208,20 @@ void main() {
 
       expect((await reload()).currentNotebookId, 'work'); // 偏好已持久化
     });
+
+    test('entryCountOf 统计指定笔记本且不改动当前笔记本', () async {
+      await storage.saveNotebooks([nb('work', '工作'), nb('default', 'default')]);
+      await storage.saveEntries('work', [
+        textEntry('w1', 'a'),
+        textEntry('w2', 'b'),
+      ]);
+      await storage.saveEntries('default', [textEntry('d1', 'c')]);
+      final s = await reload();
+
+      expect(await s.entryCountOf('work'), 2);
+      expect(await s.entryCountOf(Notebook.defaultId), 1);
+      expect(s.currentNotebookId, Notebook.defaultId); // 未被切换
+    });
   });
 
   group('搜索（ui-design §7 终态规则）', () {

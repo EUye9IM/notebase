@@ -66,6 +66,10 @@ class AppStore extends CoreChangeNotifier {
     return hits.reversed.toList();
   }
 
+  /// 指定笔记本的条目数（必要时加载并缓存），供笔记本管理 UI 使用。
+  Future<int> entryCountOf(String notebookId) async =>
+      (await _loadEntriesOf(notebookId)).length;
+
   // ---------- 笔记本 ----------
 
   /// 新建并切换为当前笔记本（ui-design §6：建完即切换）。

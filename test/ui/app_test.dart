@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:notebase/core/model.dart';
-import 'package:notebase/core/storage/storage.dart';
 import 'package:notebase/core/store.dart';
 import 'package:notebase/ui/app.dart';
 import 'package:notebase/ui/stream_view.dart';
 
+import '../support/memory_storage.dart';
+
 /// M2 验收（ui-design §11）：记一段文字 = 宽屏 1 步（Enter 发送）。
 void main() {
   testWidgets('宽屏输入文字后 Enter 发送：入流、清空输入框', (tester) async {
-    final store = await AppStore.load(_MemoryStorage());
+    final store = await AppStore.load(MemoryStorage());
     await tester.pumpWidget(NotebaseApp(store: store));
     await tester.pumpAndSettle();
 
@@ -32,7 +32,7 @@ void main() {
   });
 
   testWidgets('➤ 按钮发送；空文本时按钮禁用', (tester) async {
-    final store = await AppStore.load(_MemoryStorage());
+    final store = await AppStore.load(MemoryStorage());
     await tester.pumpWidget(NotebaseApp(store: store));
     await tester.pumpAndSettle();
 
@@ -52,7 +52,7 @@ void main() {
   });
 
   testWidgets('时间流按天分组：同日条目共用一个「今天」组头', (tester) async {
-    final store = await AppStore.load(_MemoryStorage());
+    final store = await AppStore.load(MemoryStorage());
     await store.addText('第一条');
     await store.addText('第二条');
     await tester.pumpWidget(NotebaseApp(store: store));
@@ -62,42 +62,4 @@ void main() {
     expect(find.text('第一条'), findsOneWidget);
     expect(find.text('第二条'), findsOneWidget);
   });
-}
-
-class _MemoryStorage implements Storage {
-  final _notebooks = <Notebook>[];
-  final _entries = <String, List<Entry>>{};
-  Prefs _prefs = const Prefs();
-
-  @override
-  Future<List<Notebook>> loadNotebooks() async => List.of(_notebooks);
-
-  @override
-  Future<void> saveNotebooks(List<Notebook> notebooks) async {
-    _notebooks
-      ..clear()
-      ..addAll(notebooks);
-  }
-
-  @override
-  Future<List<Entry>> loadEntries(String notebookId) async =>
-      List.of(_entries[notebookId] ?? const []);
-
-  @override
-  Future<void> saveEntries(String notebookId, List<Entry> entries) async {
-    _entries[notebookId] = List.of(entries);
-  }
-
-  @override
-  Future<void> deleteEntries(String notebookId) async {
-    _entries.remove(notebookId);
-  }
-
-  @override
-  Future<Prefs> loadPrefs() async => _prefs;
-
-  @override
-  Future<void> savePrefs(Prefs prefs) async {
-    _prefs = prefs;
-  }
 }
