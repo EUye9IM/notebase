@@ -26,12 +26,30 @@ class _StreamViewState extends State<StreamView> {
   int _lastCount = -1;
   String _lastNotebookId = '';
 
+  /// 是否离底部超过一屏：决定「↓ 回到最新」按钮是否浮现（§4）。
+  bool _farFromBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_updateFarFromBottom);
+  }
+
+  void _updateFarFromBottom() {
+    if (!_scroll.hasClients) return;
+    final position = _scroll.position;
+    final far = position.maxScrollExtent - position.pixels >
+        position.viewportDimension;
+    if (far != _farFromBottom) setState(() => _farFromBottom = far);
+  }
+
   /// 搜索态（offstage）下发生过新增：退出搜索后补一次滚底，
   /// 保证「发送后滚底」（§4）在退出搜索时兑现，而删除不打扰阅读位置。
   bool _pendingScroll = false;
 
   @override
   void dispose() {
+    _scroll.removeListener(_updateFarFromBottom);
     _scroll.dispose();
     super.dispose();
   }
@@ -42,6 +60,15 @@ class _StreamViewState extends State<StreamView> {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);
       }
     });
+  }
+
+  void _jumpToLatest() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      _scroll.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -90,17 +117,30 @@ class _StreamViewState extends State<StreamView> {
       rows.add(EntryTile(store: widget.store, entry: entry));
     }
 
-    return SingleChildScrollView(
-      controller: _scroll,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 8),
-          ...rows,
-          const SizedBox(height: 8),
-        ],
+    return Stack(children: [
+      SingleChildScrollView(
+        controller: _scroll,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            ...rows,
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
-    );
+      // 上翻超过一屏时浮现（§4）；回到最新后自行消失。
+      if (_farFromBottom)
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.small(
+            tooltip: '回到最新',
+            onPressed: _jumpToLatest,
+            child: const Icon(Icons.arrow_downward),
+          ),
+        ),
+    ]);
   }
 }
 

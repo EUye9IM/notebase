@@ -8,10 +8,18 @@ import '../core/store.dart';
 ///   宽屏自动聚焦，窄屏不自动弹键盘。
 /// - 📷 / 🎤 为占位（M6 接入录音与拍照）。
 class InputBar extends StatefulWidget {
-  const InputBar({super.key, required this.store, required this.wide});
+  const InputBar({
+    super.key,
+    required this.store,
+    required this.wide,
+    this.focusNode,
+  });
 
   final AppStore store;
   final bool wide;
+
+  /// 外部焦点节点：宽屏退出搜索后把焦点交还输入栏（§5.1 宽屏自动聚焦）。
+  final FocusNode? focusNode;
 
   @override
   State<InputBar> createState() => _InputBarState();
@@ -19,13 +27,41 @@ class InputBar extends StatefulWidget {
 
 class _InputBarState extends State<InputBar> {
   final _controller = TextEditingController();
+
+  /// 各笔记本的草稿（仅内存，重启即失）：切换笔记本时草稿各归其位，
+  /// 既不会丢，也不会把 A 里写的内容误发进 B（ui-design §10）。
+  final _drafts = <String, String>{};
+
+  /// 注意：必须在 initState 里赋值。写成 `late String _notebookId =
+  /// widget.store.currentNotebookId;` 会惰性求值——首次读取发生在切换之后，
+  /// 直接捕获新 id，换稿逻辑永不触发（已被草稿测试抓到）。
+  late String _notebookId;
+
   bool _hasText = false;
   bool _sending = false;
+
+  /// 程序化改写输入框内容时置位，避免触发 onChanged 的 setState。
+  bool _swapping = false;
 
   @override
   void initState() {
     super.initState();
+    _notebookId = widget.store.currentNotebookId;
     _controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void didUpdateWidget(InputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final id = widget.store.currentNotebookId;
+    if (id == _notebookId) return;
+    _drafts[_notebookId] = _controller.text; // 存旧本草稿
+    _notebookId = id;
+    final restored = _drafts[id] ?? '';
+    _swapping = true;
+    _controller.text = restored;
+    _swapping = false;
+    _hasText = restored.trim().isNotEmpty; // 已在重建中，直接改状态
   }
 
   @override
@@ -35,6 +71,7 @@ class _InputBarState extends State<InputBar> {
   }
 
   void _onTextChanged() {
+    if (_swapping) return;
     final has = _controller.text.trim().isNotEmpty;
     if (has != _hasText) setState(() => _hasText = has);
   }
@@ -62,6 +99,7 @@ class _InputBarState extends State<InputBar> {
   Widget build(BuildContext context) {
     Widget field = TextField(
       controller: _controller,
+      focusNode: widget.focusNode,
       autofocus: widget.wide,
       maxLines: null,
       decoration: const InputDecoration(
@@ -76,8 +114,10 @@ class _InputBarState extends State<InputBar> {
     if (widget.wide) {
       field = Focus(
         onKeyEvent: (node, event) {
+          final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+              event.logicalKey == LogicalKeyboardKey.numpadEnter;
           if (event is KeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.enter &&
+              isEnter &&
               !HardwareKeyboard.instance.isShiftPressed) {
             _send();
             return KeyEventResult.handled;

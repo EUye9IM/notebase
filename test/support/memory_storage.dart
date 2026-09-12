@@ -38,6 +38,12 @@ class MemoryStorage implements Storage {
   Future<void> savePrefs(Prefs prefs) async {
     _prefs = prefs;
   }
+
+  /// 默认不隔离；测试可赋值以模拟「坏文件已隔离」的返回。
+  List<String> quarantineResult = const [];
+
+  @override
+  Future<List<String>> quarantineCorruptFiles() async => quarantineResult;
 }
 
 /// 带写延迟的内存 Storage：模拟真实磁盘写窗口，用于发送重入类测试。

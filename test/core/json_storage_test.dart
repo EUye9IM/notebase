@@ -98,6 +98,45 @@ void main() {
       expect(await storage.loadEntries('default'), hasLength(20));
     });
 
+    // 启动期数据损坏兜底（ui-design §10）：坏文件改名保留，之后按缺失处理。
+    test('隔离损坏文件：改名保留、返回清单、正常文件不受影响', () async {
+      await storage.saveNotebooks([Notebook.createDefault()]);
+      await File('${dir.path}/nb_default.json').writeAsString('{ 坏掉的 JSON');
+      await File('${dir.path}/nb_work.json').writeAsString(
+          '[{"id":"1","notebookId":"work","type":"video","createdAt":1}]'); // 结构坏
+      await storage.savePrefs(const Prefs(theme: ThemeSetting.dark));
+
+      final quarantined = await storage.quarantineCorruptFiles();
+      expect(quarantined, hasLength(2));
+      expect(quarantined.any((n) => n.startsWith('nb_default.json.corrupt-')),
+          isTrue);
+      expect(quarantined.any((n) => n.startsWith('nb_work.json.corrupt-')),
+          isTrue);
+
+      // 坏文件已挪走：之后按「文件缺失」返回空，应用得以启动
+      expect(await storage.loadEntries('default'), isEmpty);
+      expect(await storage.loadEntries('work'), isEmpty);
+      expect((await storage.loadPrefs()).theme, ThemeSetting.dark); // 未受影响
+      for (final name in quarantined) {
+        expect(File('${dir.path}/$name').existsSync(), isTrue); // 备份仍在
+      }
+    });
+
+    test('隔离对健康数据无副作用', () async {
+      await storage.saveNotebooks([Notebook.createDefault()]);
+      await storage.saveEntries('default', [
+        Entry(
+          id: '1',
+          notebookId: 'default',
+          type: EntryType.text,
+          text: '好数据',
+          createdAt: DateTime.now(),
+        ),
+      ]);
+      expect(await storage.quarantineCorruptFiles(), isEmpty);
+      expect(await storage.loadEntries('default'), hasLength(1));
+    });
+
     // 队列毒化回归：前序写失败后，该路径仍必须可写。
     test('前序写入失败不毒化队列：故障排除后可继续写', () async {
       final blocked = File('${dir.path}/blocked');

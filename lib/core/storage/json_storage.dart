@@ -88,6 +88,64 @@ class JsonFileStorage implements Storage {
         [for (final e in entries) e.toJson()],
       );
 
+  /// 隔离无法解析的数据文件：重命名为 `<名>.corrupt-<时间戳>`，
+  /// 返回被隔离的文件名列表（供 UI 告知用户）。
+  ///
+  /// 启动期数据损坏的兜底（ui-design §10）：坏文件不删、只挪走，
+  /// 之后 [loadNotebooks] / [loadEntries] 会当作「文件缺失」返回空，
+  /// 应用得以以 default 启动，而不是抛 FormatException 崩在启动路径上。
+  @override
+  Future<List<String>> quarantineCorruptFiles() async {
+    final dir = Directory(baseDir);
+    if (!await dir.exists()) return const [];
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final quarantined = <String>[];
+    for (final entity in dir.listSync()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      final isData = name == 'notebooks.json' ||
+          name == 'prefs.json' ||
+          (name.startsWith('nb_') && name.endsWith('.json'));
+      if (!isData) continue;
+      try {
+        jsonDecode(await entity.readAsString());
+      } on FormatException {
+        // 语法坏了：无法解析
+        await _quarantine(entity, name, stamp, quarantined);
+        continue;
+      }
+      // 语法合法但结构不对（如未知条目 type）也要隔离——这类错误只有
+      // 走到模型解析时才暴露，所以用同一套「试解析」判断。
+      try {
+        if (name == 'notebooks.json') {
+          final raw = jsonDecode(await entity.readAsString()) as List;
+          for (final item in raw) {
+            Notebook.fromJson(item as Map<String, dynamic>);
+          }
+        } else if (name.startsWith('nb_')) {
+          final raw = jsonDecode(await entity.readAsString()) as List;
+          for (final item in raw) {
+            Entry.fromJson(item as Map<String, dynamic>);
+          }
+        }
+      } on Object {
+        await _quarantine(entity, name, stamp, quarantined);
+      }
+    }
+    return quarantined;
+  }
+
+  Future<void> _quarantine(
+    File file,
+    String name,
+    int stamp,
+    List<String> sink,
+  ) async {
+    final target = '$name.corrupt-$stamp';
+    await file.rename('$baseDir/$target');
+    sink.add(target);
+  }
+
   @override
   Future<void> deleteEntries(String notebookId) async {
     final file = File('$baseDir/nb_$notebookId.json');

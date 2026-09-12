@@ -7,9 +7,12 @@ import 'listenable_bridge.dart';
 
 /// 应用根：主题偏好驱动 MaterialApp，全局监听 store 变更。
 class NotebaseApp extends StatefulWidget {
-  const NotebaseApp({super.key, required this.store});
+  const NotebaseApp({super.key, required this.store, this.startupNotice});
 
   final AppStore store;
+
+  /// 启动期数据损坏等需要告知用户的信息（ui-design §10），可关闭。
+  final String? startupNotice;
 
   @override
   State<NotebaseApp> createState() => _NotebaseAppState();
@@ -52,7 +55,10 @@ class _NotebaseAppState extends State<NotebaseApp> {
           ThemeSetting.light => ThemeMode.light,
           ThemeSetting.dark => ThemeMode.dark,
         },
-        home: HomePage(store: widget.store),
+        home: HomePage(
+          store: widget.store,
+          startupNotice: widget.startupNotice,
+        ),
       ),
     );
   }

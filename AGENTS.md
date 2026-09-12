@@ -127,11 +127,11 @@ lib/
 ## 里程碑节奏
 
 按 `docs/dev-plan.md` 的 M1–M5 推进，一个里程碑一次提交；每个里程碑结束必须满足
-「检查清单」。当前：M1–M4 已完成，M5（打磨：回到最新按钮、键盘行为显式核对、
-启动期数据损坏兜底、§10 边界清单、§11 全表手动核对 + release 自测）待做。
+「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5），
+下一步是 M6 多媒体（录音 / 拍照 / 相册）。
 
-**Post-M5 待办**（评审登记，勿遗忘）：
-- 启动期数据损坏：坏文件备份 → 以 default 启动 → 明确告知（`ui-design.mdx` §10 已写规则）
-- 键盘行为：`numpadEnter`（当前只匹配 `enter`）、真实 Linux IM 路径下的 Enter 发送
+**未完成 / 待观察项**（勿遗忘）：
+- 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）
+- 输入栏草稿仅内存（重启即失），如需持久化再定

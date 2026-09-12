@@ -107,3 +107,26 @@ lib/
 - **旧原型数据**：`shared_preferences` 里的旧笔记为原型数据，M1 直接废弃不迁移；主题偏好重置为默认可接受。
 - **写入并发**（M3 评审后已修）：`JsonFileStorage` 按路径串行化 + 唯一 tmp 名；修前实测并发写 120/120 轮 `PathNotFoundException`、300 轮中 1 轮静默丢数据，回归测试已固化（`json_storage_test.dart`）。
 - **流渲染无虚拟化**：`SingleChildScrollView + Column` 全量构建，条目上千后需换 `ListView.builder`；与「JSON 全量写」同源，触发条件出现时一并处理。
+
+## 5. M5 验收记录（§11 操作步数表）
+
+每行都对应一条可执行的自动化断言（媒体相关行属 M6，当前 N/A）：
+
+| §11 行 | 步数 | 自动化证据 |
+|---|---|---|
+| 记一段文字（窄屏） | 2 | `test/ui/polish_test.dart`「§11 步数表：窄屏记一段文字 = 2 步」 |
+| 记一段文字（宽屏） | 1 | `test/ui/app_test.dart`「宽屏输入文字后 Enter 发送」 |
+| 搜索定位一条文本 | 1 + 输入 | `test/ui/search_test.dart`「1 步进入，输入即过滤，退出恢复时间流」 |
+| 切换笔记本（窄屏） | 2 | `test/ui/notebook_test.dart`「窄屏：顶栏弹层切换笔记本（2 步）」 |
+| 切换笔记本（宽屏） | 1 | 同上文件「宽屏：侧栏点按切换笔记本（1 步）」 |
+| 新建并切到新笔记本 | 3 | 同上文件「新建笔记本：对话框 → 创建 → 立即切换为当前」 |
+| 删除一条记录 | 3 | `test/ui/search_test.dart`「长按 → 删除 → 确认（3 步），并可用 5s 撤销找回」 |
+| 录一段音 / 拍一张照 / 相册导入 / 查看补录转写或摘要 | — | M6 未实装，N/A |
+
+工程门禁（M5 实测）：
+
+- `flutter analyze` → 0 issue
+- `flutter test` → 86 项全绿；`TZ=Europe/Berlin` 下 DST 用例通过
+- `flutter build linux --release` 通过；release 二进制实跑 8s 无崩溃（仅 Impeller / 光标主题无害提示）
+- 启动兜底实测（真实数据副本）：`notebooks.json` 写坏后仍以 default 启动，坏文件隔离为
+  `notebooks.json.corrupt-<时间戳>` 并保留在数据目录

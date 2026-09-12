@@ -15,9 +15,12 @@ import 'stream_view.dart';
 /// 退出后恢复原流与滚动位置（靠 IndexedStack 保活时间流实现）。
 /// 笔记本管理（§6）见 notebook_list.dart。
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.store});
+  const HomePage({super.key, required this.store, this.startupNotice});
 
   final AppStore store;
+
+  /// 启动期提示（数据损坏等），显示为可关闭的提示条（ui-design §10）。
+  final String? startupNotice;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -26,12 +29,18 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
+  final _inputFocus = FocusNode();
   bool _searching = false;
+  bool _noticeDismissed = false;
+
+  /// 宽窄布局由 build 判定；退出搜索时用它决定是否把焦点交还输入栏。
+  bool _wide = true;
 
   @override
   void dispose() {
     _searchController.dispose();
     _searchFocus.dispose();
+    _inputFocus.dispose();
     super.dispose();
   }
 
@@ -45,11 +54,27 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  /// 退出搜索：清空关键词，恢复时间流（滚动位置由 IndexedStack 保活）。
+  /// 退出搜索：清空关键词，恢复时间流（滚动位置由 IndexedStack 保活）；
+  /// 宽屏把焦点交还输入栏，接回「打开即可打字」的节奏（§5.1）。
   void _exitSearch() {
     _searchFocus.unfocus();
     _searchController.clear();
     setState(() => _searching = false);
+    if (_wide) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _inputFocus.requestFocus();
+      });
+    }
+  }
+
+  /// 启动期提示条（可关闭）。
+  Widget get _notice {
+    final message = widget.startupNotice;
+    if (message == null || _noticeDismissed) return const SizedBox.shrink();
+    return _StartupNotice(
+      message: message,
+      onDismiss: () => setState(() => _noticeDismissed = true),
+    );
   }
 
   void _clearQuery() {
@@ -94,6 +119,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 720;
+      _wide = wide; // 供退出搜索后决定焦点去向
       if (wide) {
         return Scaffold(
           body: Row(children: [
@@ -110,8 +136,13 @@ class _HomePageState extends State<HomePage> {
                             store: widget.store,
                             onSearch: _startSearch,
                           ),
+                    _notice,
                     Expanded(child: _content),
-                    InputBar(store: widget.store, wide: true),
+                    InputBar(
+                      store: widget.store,
+                      wide: true,
+                      focusNode: _inputFocus,
+                    ),
                   ]),
                 ),
               ),
@@ -180,6 +211,7 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
         body: Column(children: [
+          _notice,
           Expanded(child: _content),
           InputBar(store: widget.store, wide: false),
         ]),
@@ -236,6 +268,41 @@ class _StreamHeader extends StatelessWidget {
           icon: const Icon(Icons.search),
           tooltip: '搜索',
           onPressed: onSearch,
+        ),
+      ]),
+    );
+  }
+}
+
+/// 启动期提示条：明确告知、可关闭、不阻塞使用（ui-design §10）。
+class _StartupNotice extends StatelessWidget {
+  const _StartupNotice({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      color: colors.errorContainer,
+      padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+      child: Row(children: [
+        Icon(Icons.warning_amber_outlined,
+            size: 18, color: colors.onErrorContainer),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: TextStyle(color: colors.onErrorContainer),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.close, size: 18),
+          color: colors.onErrorContainer,
+          tooltip: '知道了',
+          onPressed: onDismiss,
         ),
       ]),
     );
