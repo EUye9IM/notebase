@@ -139,9 +139,14 @@ Future<bool?> showDeleteEntryDialog(BuildContext context) => showDialog<bool>(
     );
 
 /// 删除后的 toast + 5s 撤销（ui-design §8：撤销是唯一的后悔药）。
+///
+/// `persist: false` 不可省：Flutter 3.47 起，带 action 的 SnackBar 默认
+/// `persist = persist ?? action != null`，即**永不自动关闭**——撤销条会一直
+/// 挂在底部（实测用户可见），5s 窗口形同虚设。显式关闭后 duration 才生效。
 SnackBar undoSnackBar(AppStore store, Entry removed) => SnackBar(
       content: const Text('已删除'),
       duration: const Duration(seconds: 5),
+      persist: false,
       action: SnackBarAction(
         label: '撤销',
         onPressed: () => store.restoreEntry(removed),

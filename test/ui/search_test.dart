@@ -402,6 +402,25 @@ void main() {
       expect(store.entries.map((e) => e.text), ['要删掉的', '留着的']);
     });
 
+    // 回归：Flutter 3.47 起带 action 的 SnackBar 默认 persist=true（永不自动
+    // 关闭），撤销条会一直挂在底部。必须显式 persist: false 让 5s 生效（§8）。
+    testWidgets('撤销条 5s 后自动消失（persist 回归）', (tester) async {
+      final store = await storeWith(['要删掉的']);
+      await pumpApp(tester, store);
+
+      await tester.longPress(find.text('要删掉的'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('撤销'), findsOneWidget); // 撤销窗口内可见
+      await tester.pump(const Duration(seconds: 6)); // 越过 5s 窗口
+      await tester.pumpAndSettle();
+      expect(find.text('撤销'), findsNothing); // 自动关闭，不长期占位
+    });
+
     testWidgets('取消确认则不删除', (tester) async {
       final store = await storeWith(['留着']);
       await pumpApp(tester, store);

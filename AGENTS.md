@@ -23,7 +23,7 @@ export PATH="$PATH:/opt/dev/flutter/bin"
 
 flutter pub get
 flutter analyze                 # 必须 0 issue
-flutter test                    # 全量；当前 73 项
+flutter test                    # 全量；必须全绿
 flutter test test/ui/search_test.dart          # 单文件
 flutter test --plain-name "关键词"              # 单用例
 TZ=Europe/Berlin flutter test test/ui/stream_view_test.dart   # DST 用例需在 DST 时区跑
@@ -95,6 +95,10 @@ lib/
   因此条目行用 `Text`；整条复制走菜单的「复制」。
 - **widget 测试没有平台通道实现**（剪贴板等）：需
   `tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(...)`。
+- **带 `action` 的 `SnackBar` 在 Flutter 3.47 起默认 `persist: true`（永不自动
+  关闭）**：`persist = persist ?? action != null`。撤销条必须显式
+  `persist: false`，否则 `duration` 形同虚设、底栏长期占位（已修，
+  回归测试在 `test/ui/search_test.dart`）。
 - **别用真实文件系统做 UI 测试**：用 `test/support/memory_storage.dart`
   （`MemoryStorage` / `SlowMemoryStorage`——后者模拟写延迟，用于发送重入类测试）。
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（已修）：
