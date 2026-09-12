@@ -154,9 +154,16 @@ class JsonFileStorage implements Storage {
 
   @override
   Future<Prefs> loadPrefs() async {
-    final raw = await _read(File('$baseDir/prefs.json'));
-    if (raw == null) return const Prefs();
-    return Prefs.fromJson(raw as Map<String, dynamic>);
+    try {
+      final raw = await _read(File('$baseDir/prefs.json'));
+      if (raw == null) return const Prefs();
+      return Prefs.fromJson(raw as Map<String, dynamic>);
+    } on Object {
+      // 偏好只存主题与当前笔记本，重置零代价：读不出来就回默认，
+      // 绝不因此把启动挡在 StartupErrorApp 上（ui-design §10）。
+      // 下次任何偏好变更都会重写该文件。
+      return const Prefs();
+    }
   }
 
   @override

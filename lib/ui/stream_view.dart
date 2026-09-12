@@ -32,14 +32,21 @@ class _StreamViewState extends State<StreamView> {
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_updateFarFromBottom);
+    _scroll.addListener(_onScroll);
   }
 
-  void _updateFarFromBottom() {
-    if (!_scroll.hasClients) return;
+  /// 是否离底超过一屏。用滚动位置**实时**判定，而不是只信缓存状态：
+  /// 切到内容不足一屏的笔记本时，越界修正是静默的（correctPixels 不发通知），
+  /// 缓存状态会停在 true，按钮就永远赖着且点不掉（M5 评审 P2-1）。
+  bool get _isFarFromBottom {
+    if (!_scroll.hasClients) return false;
     final position = _scroll.position;
-    final far = position.maxScrollExtent - position.pixels >
+    return position.maxScrollExtent - position.pixels >
         position.viewportDimension;
+  }
+
+  void _onScroll() {
+    final far = _isFarFromBottom;
     if (far != _farFromBottom) setState(() => _farFromBottom = far);
   }
 
@@ -49,7 +56,7 @@ class _StreamViewState extends State<StreamView> {
 
   @override
   void dispose() {
-    _scroll.removeListener(_updateFarFromBottom);
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();
   }
@@ -64,11 +71,16 @@ class _StreamViewState extends State<StreamView> {
 
   void _jumpToLatest() {
     if (!_scroll.hasClients) return;
-    _scroll.animateTo(
-      _scroll.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-    );
+    _scroll
+        .animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        )
+        // 无像素变化时不会有滚动通知，主动重建一次让按钮按新位置收敛。
+        .whenComplete(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -103,6 +115,7 @@ class _StreamViewState extends State<StreamView> {
     }
 
     if (entries.isEmpty) {
+      _farFromBottom = false; // 空态：无内容可滚，按钮必须消失
       return const Center(child: Text('⬇ 在下面记第一条'));
     }
 
@@ -117,6 +130,16 @@ class _StreamViewState extends State<StreamView> {
       rows.add(EntryTile(store: widget.store, entry: entry));
     }
 
+    final farFromBottom = _isFarFromBottom;
+    _farFromBottom = farFromBottom; // 同步基线，供滚动监听器比较
+    // 布局阶段的越界修正是静默的（不发滚动通知）：内容变短后按钮可能还停在
+    // 上一帧的判定上。帧末补一次重算，让状态自动收敛（§4 / 评审 P2-1）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final far = _isFarFromBottom;
+      if (far != _farFromBottom) setState(() => _farFromBottom = far);
+    });
+
     return Stack(children: [
       SingleChildScrollView(
         controller: _scroll,
@@ -130,7 +153,7 @@ class _StreamViewState extends State<StreamView> {
         ),
       ),
       // 上翻超过一屏时浮现（§4）；回到最新后自行消失。
-      if (_farFromBottom)
+      if (farFromBottom)
         Positioned(
           right: 16,
           bottom: 16,

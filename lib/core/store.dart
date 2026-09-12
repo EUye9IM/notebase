@@ -131,8 +131,10 @@ class AppStore extends CoreChangeNotifier {
     if (!_notebooks.any((n) => n.id == id)) {
       throw ArgumentError('笔记本不存在: $id');
     }
-    _currentId = id;
+    // 先加载、后改状态：条目文件读失败时不留「已切走但没数据」的半切换态
+    // （ui-design §10：数据损坏不得让应用停在不可用状态）。
     await _loadEntriesOf(id);
+    _currentId = id;
     await _storage.savePrefs(_prefs());
     notifyListeners();
   }

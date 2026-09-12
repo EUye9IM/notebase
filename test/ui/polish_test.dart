@@ -53,6 +53,84 @@ void main() {
       expect(position.pixels, position.maxScrollExtent);
       expect(find.byTooltip('回到最新'), findsNothing); // 回到底部后自行消失
     });
+
+    // P2-1 回归：内容不足一屏时不该有按钮；上翻后切到短本，按钮必须消失。
+    testWidgets('内容不足一屏的笔记本不显示按钮，切换后不残留', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      for (var i = 0; i < 60; i++) {
+        await store.addText('长本 $i');
+      }
+      final short = await store.createNotebook('短本');
+      await store.addText('只有一条');
+      await store.switchNotebook(Notebook.defaultId);
+      await pumpApp(tester, store);
+
+      await tester.drag(streamScrollable(), const Offset(0, 1200));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('回到最新'), findsOneWidget); // 长本上翻后浮现
+
+      await store.switchNotebook(short.id); // 切到内容不足一屏的笔记本
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('回到最新'), findsNothing); // 当前实现会残留
+    });
+  });
+
+  group('发送写盘窗口（P2-2 回归）', () {
+    testWidgets('窗口内切本：目标本草稿不被发送完成的 clear 抹掉', (tester) async {
+      final store = await AppStore.load(SlowMemoryStorage());
+      final work = await store.createNotebook('工作');
+      await store.switchNotebook(Notebook.defaultId);
+      await pumpApp(tester, store);
+
+      String fieldText() => tester
+          .widget<EditableText>(find.descendant(
+            of: find.byType(InputBar),
+            matching: find.byType(EditableText),
+          ))
+          .controller
+          .text;
+
+      await tester.enterText(find.byType(TextField), 'AAA');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_outlined)); // 开始写盘（50ms 窗口）
+      await tester.pump(const Duration(milliseconds: 10));
+
+      await store.switchNotebook(work.id); // 窗口内切本
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '工作的草稿');
+      await tester.pump();
+
+      await tester.pump(const Duration(milliseconds: 300)); // 写盘完成
+      await tester.pumpAndSettle();
+
+      // 条目进的是「发送时所在的本」（当前已是工作本，故按归属查）
+      expect(await store.entryCountOf(Notebook.defaultId), 1);
+      expect(fieldText(), '工作的草稿'); // 曾经被发送完成的 clear 抹掉
+    });
+
+    testWidgets('窗口内继续打字：新输入不被吞掉', (tester) async {
+      final store = await AppStore.load(SlowMemoryStorage());
+      await pumpApp(tester, store);
+
+      String fieldText() => tester
+          .widget<EditableText>(find.descendant(
+            of: find.byType(InputBar),
+            matching: find.byType(EditableText),
+          ))
+          .controller
+          .text;
+
+      await tester.enterText(find.byType(TextField), 'AAA');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_outlined));
+      await tester.pump(const Duration(milliseconds: 10));
+      await tester.enterText(find.byType(TextField), 'AAABBB'); // 窗口内继续打字
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      expect(store.entries.single.text, 'AAA');
+      expect(fieldText(), 'AAABBB'); // 当前实现被吞成空
+    });
   });
 
   group('键盘（§5.1）', () {
@@ -117,15 +195,27 @@ void main() {
 
       await tester.tap(find.byType(TextField)); // 第 1 步：点输入框
       await tester.pump();
-      await tester.enterText(find.byType(TextField), '窄屏速记');
+      tester.testTextInput.enterText('窄屏速记'); // 真实键盘路径：点框即聚焦
       await tester.pump();
+      expect(
+        tester
+            .widget<EditableText>(find.descendant(
+              of: find.byType(InputBar),
+              matching: find.byType(EditableText),
+            ))
+            .controller
+            .text,
+        '窄屏速记',
+      );
       await tester.tap(find.byIcon(Icons.send_outlined)); // 第 2 步：➤
       await tester.pumpAndSettle();
 
       expect(store.entries.single.text, '窄屏速记');
     });
 
-    testWidgets('窄屏 Enter 是换行，不会误发', (tester) async {
+    // 注：widget 测试环境里 Enter 既不会发送也不会真的插入换行，
+    // 因此这里只能断言「未误发、原文未丢」；真实换行行为在真机验证。
+    testWidgets('窄屏 Enter 不误发，且原文不丢', (tester) async {
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -141,10 +231,43 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(store.entries, isEmpty);
+      expect(
+        tester
+            .widget<EditableText>(find.descendant(
+              of: find.byType(InputBar),
+              matching: find.byType(EditableText),
+            ))
+            .controller
+            .text,
+        contains('第一行'),
+      );
     });
   });
 
   group('草稿归属（§10 决策）', () {
+    testWidgets('窗口跨 720 宽窄切换，草稿不丢（P3-1 回归）', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      await pumpApp(tester, store);
+
+      String fieldText() => tester
+          .widget<EditableText>(find.descendant(
+            of: find.byType(InputBar),
+            matching: find.byType(EditableText),
+          ))
+          .controller
+          .text;
+
+      await tester.enterText(find.byType(TextField), '拖动窗口前写的草稿');
+      await tester.pump();
+
+      tester.view.physicalSize = const Size(400, 800); // 跨 720 → 窄屏分支
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+
+      expect(fieldText(), '拖动窗口前写的草稿'); // 当前实现会丢
+    });
+
     testWidgets('草稿按笔记本各自保存，切换不丢也不串味', (tester) async {
       final store = await AppStore.load(MemoryStorage());
       final work = await store.createNotebook('工作');

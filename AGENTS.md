@@ -99,6 +99,11 @@ lib/
   关闭）**：`persist = persist ?? action != null`。撤销条必须显式
   `persist: false`，否则 `duration` 形同虚设、底栏长期占位（已修，
   回归测试在 `test/ui/search_test.dart`）。
+- **滚动越界修正是静默的**：内容变短（如切到条目更少的笔记本）时 `correctPixels` 不发通知，
+  只信缓存的滚动判定会让「回到最新」之类的按钮残留且点不掉。要在帧末重算或监听
+  `ScrollMetricsNotification`（M5 评审 P2-1）。
+- **跨布局重建会重建 State**：宽/窄两套布局各自构造同一组件时，拖动窗口跨 720 会丢 State 内的
+  数据。需要存活的状态（如输入草稿）要上提到页面持有的对象里（`DraftStore`，M5 评审 P3-1）。
 - **别用真实文件系统做 UI 测试**：用 `test/support/memory_storage.dart`
   （`MemoryStorage` / `SlowMemoryStorage`——后者模拟写延迟，用于发送重入类测试）。
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（已修）：
@@ -110,6 +115,10 @@ lib/
   吞掉前序错误（否则一次失败会永久毒化该文件的写队列）。改这里时保持这两点，
   回归测试在 `test/core/json_storage_test.dart`。
 - 固定临时文件名 + 并发写会抛 `PathNotFoundException`，还会**静默丢数据**（实测）。
+- **惰性加载会掩盖损坏**：`AppStore.load` 只读当前笔记本的条目文件，其它 `nb_*.json` 坏了
+  启动时毫无征兆，切过去才炸且该本永久打不开——启动期必须**主动全量扫描**（M5 评审 P2-3）。
+- **低价值数据不要挡住启动**：`prefs.json`（主题 + 当前笔记本）任何损坏都应回默认值继续，
+  而不是把用户拦在错误界面上（M5 评审 P2-4）。
 - UI 里 `await` 之后再用 `context`/`ScaffoldMessenger` 前先查 `mounted`；
   messenger 在 `await` **之前**捕获。
 
@@ -127,7 +136,8 @@ lib/
 ## 里程碑节奏
 
 按 `docs/dev-plan.md` 的 M1–M5 推进，一个里程碑一次提交；每个里程碑结束必须满足
-「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5），
+「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5，
+M5 评审修复记录见 §6），
 下一步是 M6 多媒体（录音 / 拍照 / 相册）。
 
 **未完成 / 待观察项**（勿遗忘）：

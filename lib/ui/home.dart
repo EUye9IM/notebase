@@ -5,6 +5,7 @@ import 'input_bar.dart';
 import 'notebook_list.dart';
 import 'search_view.dart';
 import 'settings_view.dart';
+import 'startup_views.dart';
 import 'stream_view.dart';
 
 /// 应用壳（ui-design §3）：
@@ -30,6 +31,11 @@ class _HomePageState extends State<HomePage> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   final _inputFocus = FocusNode();
+
+  /// 草稿由页面持有：宽/窄布局各自构造 InputBar，State 会重建，
+  /// 草稿放 State 里会在拖动窗口跨 720 时丢失（§10 / M5 评审 P3-1）。
+  final _drafts = DraftStore();
+
   bool _searching = false;
   bool _noticeDismissed = false;
 
@@ -71,7 +77,7 @@ class _HomePageState extends State<HomePage> {
   Widget get _notice {
     final message = widget.startupNotice;
     if (message == null || _noticeDismissed) return const SizedBox.shrink();
-    return _StartupNotice(
+    return StartupNotice(
       message: message,
       onDismiss: () => setState(() => _noticeDismissed = true),
     );
@@ -142,6 +148,7 @@ class _HomePageState extends State<HomePage> {
                       store: widget.store,
                       wide: true,
                       focusNode: _inputFocus,
+                      drafts: _drafts,
                     ),
                   ]),
                 ),
@@ -213,7 +220,7 @@ class _HomePageState extends State<HomePage> {
         body: Column(children: [
           _notice,
           Expanded(child: _content),
-          InputBar(store: widget.store, wide: false),
+          InputBar(store: widget.store, wide: false, drafts: _drafts),
         ]),
       );
     });
@@ -268,41 +275,6 @@ class _StreamHeader extends StatelessWidget {
           icon: const Icon(Icons.search),
           tooltip: '搜索',
           onPressed: onSearch,
-        ),
-      ]),
-    );
-  }
-}
-
-/// 启动期提示条：明确告知、可关闭、不阻塞使用（ui-design §10）。
-class _StartupNotice extends StatelessWidget {
-  const _StartupNotice({required this.message, required this.onDismiss});
-
-  final String message;
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      width: double.infinity,
-      color: colors.errorContainer,
-      padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
-      child: Row(children: [
-        Icon(Icons.warning_amber_outlined,
-            size: 18, color: colors.onErrorContainer),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            message,
-            style: TextStyle(color: colors.onErrorContainer),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.close, size: 18),
-          color: colors.onErrorContainer,
-          tooltip: '知道了',
-          onPressed: onDismiss,
         ),
       ]),
     );

@@ -157,7 +157,9 @@ class Prefs {
           (t) => t.name == json['theme'],
           orElse: () => ThemeSetting.system,
         ),
-        currentNotebookId: json['currentNotebookId'] as String?,
+        // 类型不符一律当缺失：偏好是低价值数据，不值得为它中断启动。
+        currentNotebookId:
+            json['currentNotebookId'] is String ? json['currentNotebookId'] as String : null,
       );
 
   Map<String, dynamic> toJson() => {

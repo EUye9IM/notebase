@@ -73,9 +73,22 @@ class _NotebookTile extends StatelessWidget {
 
   bool get _manageable => notebook.id != Notebook.defaultId;
 
-  Future<void> _switch() async {
-    if (notebook.id != store.currentNotebookId) {
+  Future<void> _switch(BuildContext context) async {
+    if (notebook.id == store.currentNotebookId) {
+      onDone?.call();
+      return;
+    }
+    try {
       await store.switchNotebook(notebook.id);
+    } on Object catch (error) {
+      // 条目文件损坏等导致切本失败：给可读反馈，不把异常抛到 zone，
+      // 也不关闭弹层（用户可重试或换一个笔记本）。
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('无法打开「${notebook.name}」：$error')),
+        );
+      }
+      return;
     }
     onDone?.call();
   }
@@ -129,7 +142,7 @@ class _NotebookTile extends StatelessWidget {
       selected: notebook.id == store.currentNotebookId,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       title: Text(notebook.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      onTap: _switch,
+      onTap: () => _switch(context),
       onLongPress: _manageable ? () => _showMenu(context, _anchor(context)) : null,
     );
     if (!_manageable) return tile;
