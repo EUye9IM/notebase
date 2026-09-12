@@ -99,6 +99,7 @@ notebase/
 │   ├── ui/                 # Flutter：app / home / stream_view / input_bar /
 │   │                       #          notebook_list / settings_view + listenable_bridge
 │   └── main.dart           # 入口：注入应用目录 → 加载 AppStore → 启动
+├── AGENTS.md               # 给编码 agent 的约定：架构铁律、命令、坑与检查清单
 ├── docs/
 │   ├── ui-design.mdx       # 交互设计（含 §11 操作步数验收表）
 │   └── dev-plan.md         # 开发计划（里程碑 M1–M5，多媒体后置）
