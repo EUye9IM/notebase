@@ -124,16 +124,35 @@ void main() {
       expect((await reload()).entries.map((e) => e.id), ['a', 'b', 'c']);
     });
 
-    test('撤销时原笔记本已删除：落到当前笔记本并重写归属', () async {
+    test('撤销时原笔记本已删除：落到当前笔记本（而非 default）并重写归属', () async {
       final s = await reload();
       final work = await s.createNotebook('工作');
       await s.addText('工作里的条目');
       final removed = await s.deleteEntry(s.entries.single.id);
       await s.deleteNotebook(work.id); // 撤销窗口内删掉了该笔记本
+      final other = await s.createNotebook('灵感'); // 当前 = 灵感，与 default 区分开
 
       await s.restoreEntry(removed);
+      expect(s.currentNotebookId, other.id);
       expect(s.entries.single.text, '工作里的条目');
-      expect(s.entries.single.notebookId, Notebook.defaultId);
+      expect(s.entries.single.notebookId, other.id); // 落到「当前」而非 default
+      expect(await storage.loadEntries(Notebook.defaultId), isEmpty);
+    });
+
+    test('删除 / 编辑按条目归属定位，不限于当前笔记本', () async {
+      final s = await reload();
+      final work = await s.createNotebook('工作');
+      await s.addText('工作的条目');
+      final entry = s.entries.single;
+      await s.switchNotebook(Notebook.defaultId); // 切走，缓存仍在
+
+      await s.updateEntryText(entry.id, '改过的条目');
+      expect((await storage.loadEntries(work.id)).single.text, '改过的条目');
+
+      final removed = await s.deleteEntry(entry.id);
+      expect(removed.id, entry.id);
+      expect(await storage.loadEntries(work.id), isEmpty);
+      expect(s.entries, isEmpty); // 当前笔记本未受影响
     });
 
     test('撤销是幂等的', () async {

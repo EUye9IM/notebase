@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notebase/core/model.dart';
 import 'package:notebase/core/store.dart';
+import 'package:notebase/ui/input_bar.dart';
 import 'package:notebase/ui/app.dart';
 import 'package:notebase/ui/editor_sheet.dart';
 import 'package:notebase/ui/search_view.dart';
@@ -29,6 +31,17 @@ void main() {
   /// 当前显示的是哪一屏：0 = 时间流，1 = 搜索结果（ui-design §7 原地切换）。
   int visibleIndex(WidgetTester tester) =>
       tester.widget<IndexedStack>(find.byType(IndexedStack)).index!;
+
+  EditableText editableIn(WidgetTester tester, Type ancestor) =>
+      tester.widget<EditableText>(
+        find.descendant(of: find.byType(ancestor), matching: find.byType(EditableText)),
+      );
+
+  bool searchFocused(WidgetTester tester) =>
+      editableIn(tester, SearchField).focusNode.hasFocus;
+
+  bool inputBarFocused(WidgetTester tester) =>
+      editableIn(tester, InputBar).focusNode.hasFocus;
 
   group('搜索', () {
     testWidgets('1 步进入，输入即过滤，退出恢复时间流', (tester) async {
@@ -78,6 +91,107 @@ void main() {
       expect(find.text('输入关键词，仅搜索当前笔记本'), findsOneWidget);
     });
 
+    // P1 回归（M4 评审）：宽屏下输入栏启动即持有聚焦，曾导致搜索框拿不到焦点、
+    // 输入落进输入栏、Enter 变成新建条目、Esc 失效。断言必须走真实键盘路径
+    // （testTextInput），不能用 enterText(SearchField) —— 那会强制聚焦、掩盖问题。
+    testWidgets('宽屏：焦点在搜索框，输入不落进输入栏，Enter 不新建（P1 回归）', (tester) async {
+      final store = await storeWith(['买了猫粮']);
+      await pumpApp(tester, store);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      expect(searchFocused(tester), isTrue);
+      expect(inputBarFocused(tester), isFalse);
+
+      tester.testTextInput.enterText('猫粮'); // 真实键盘/IME 路径
+      await tester.pumpAndSettle();
+      expect(editableIn(tester, SearchField).controller.text, '猫粮');
+      expect(editableIn(tester, InputBar).controller.text, isEmpty);
+      expect(find.text('1 条结果'), findsOneWidget);
+      expect(store.entries, hasLength(1)); // 没有被写成新条目
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(store.entries, hasLength(1)); // Enter 在搜索态不新建
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(visibleIndex(tester), 0); // Esc 退出搜索
+    });
+
+    testWidgets('搜索期间新增条目：退出搜索后滚到底部（§4 兑现）', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      for (var i = 0; i < 60; i++) {
+        await store.addText('条目 $i');
+      }
+      await pumpApp(tester, store);
+
+      final scrollable = find.descendant(
+        of: find.byType(StreamView),
+        matching: find.byType(Scrollable),
+      );
+      await tester.drag(scrollable, const Offset(0, 600));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.search)); // 输入栏仍常驻，可继续记录
+      await tester.pumpAndSettle();
+      await store.addText('搜索期间新增');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      final position = tester.state<ScrollableState>(scrollable).position;
+      expect(position.pixels, greaterThan(position.maxScrollExtent - 32));
+    });
+
+    testWidgets('媒体条目：复制取转写文本；无文本时不提供「复制」', (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied = (call.arguments as Map)['text'] as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+
+      final storage = MemoryStorage();
+      await storage.saveEntries(Notebook.defaultId, [
+        Entry(
+          id: 'a1',
+          notebookId: Notebook.defaultId,
+          type: EntryType.audio,
+          transcript: '跟师傅约了周三',
+          createdAt: DateTime(2026, 9, 1),
+        ),
+        Entry(
+          id: 'a2',
+          notebookId: Notebook.defaultId,
+          type: EntryType.audio,
+          createdAt: DateTime(2026, 9, 2),
+        ),
+      ]);
+      final store = await AppStore.load(storage);
+      await pumpApp(tester, store);
+
+      // 有转写的录音：菜单里有「复制」，复制的是转写全文
+      await tester.longPress(find.byType(EntryTile).first);
+      await tester.pumpAndSettle();
+      expect(find.text('复制'), findsOneWidget);
+      await tester.tap(find.text('复制'));
+      await tester.pumpAndSettle();
+      expect(copied, '跟师傅约了周三');
+
+      // 无任何文字的录音：不提供「复制」（避免复制空串还提示已复制）
+      await tester.longPress(find.byType(EntryTile).last);
+      await tester.pumpAndSettle();
+      expect(find.text('复制'), findsNothing);
+    });
+
     testWidgets('窄屏：顶栏进入搜索并过滤', (tester) async {
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1.0;
@@ -89,6 +203,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.search));
       await tester.pumpAndSettle();
       expect(visibleIndex(tester), 1);
+      expect(searchFocused(tester), isTrue); // 窄屏同样要拿到焦点
 
       await tester.enterText(find.byType(SearchField), '开会');
       await tester.pumpAndSettle();
@@ -122,6 +237,86 @@ void main() {
 
       final after = tester.state<ScrollableState>(scrollable).position.pixels;
       expect(after, before);
+    });
+
+    testWidgets('搜索期间删除条目，退出后滚动位置仍保留（§7 回归）', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      for (var i = 0; i < 60; i++) {
+        await store.addText('条目 $i');
+      }
+      await pumpApp(tester, store);
+
+      final scrollable = find.descendant(
+        of: find.byType(StreamView),
+        matching: find.byType(Scrollable),
+      );
+      await tester.drag(scrollable, const Offset(0, 600));
+      await tester.pumpAndSettle();
+      final before = tester.state<ScrollableState>(scrollable).position.pixels;
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(SearchField), '条目 5');
+      await tester.pumpAndSettle();
+
+      // 在结果里删掉一条（会改变条目数，曾经导致 offstage 时间流滚到底部）
+      await tester.longPress(
+        find
+            .descendant(
+              of: find.byType(SearchResults),
+              matching: find.byType(EntryTile),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      final after = tester.state<ScrollableState>(scrollable).position.pixels;
+      expect(after, before);
+    });
+
+    testWidgets('搜索期间切换笔记本，退出后落到新笔记本底部（§4 优先）', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      for (var i = 0; i < 40; i++) {
+        await store.addText('甲 $i');
+      }
+      await store.createNotebook('工作');
+      for (var i = 0; i < 40; i++) {
+        await store.addText('乙 $i');
+      }
+      await store.switchNotebook('default');
+      await pumpApp(tester, store);
+
+      final scrollable = find.descendant(
+        of: find.byType(StreamView),
+        matching: find.byType(Scrollable),
+      );
+      await tester.drag(scrollable, const Offset(0, 600)); // 先翻离底部
+      await tester.pumpAndSettle();
+      expect(
+        tester.state<ScrollableState>(scrollable).position.pixels,
+        lessThan(
+          tester.state<ScrollableState>(scrollable).position.maxScrollExtent,
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('工作')); // 宽屏侧栏在搜索态下仍可见
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+
+      expect(store.currentNotebook.name, '工作');
+      final position = tester.state<ScrollableState>(scrollable).position;
+      // 换本仍滚底（§4）；允许内容重排造成的少量误差（实测 8px）
+      expect(position.pixels, greaterThan(position.maxScrollExtent - 32));
     });
 
     testWidgets('结果按时间倒序（最新在前）', (tester) async {

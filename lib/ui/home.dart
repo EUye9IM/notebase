@@ -25,21 +25,29 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
   bool _searching = false;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
   void _startSearch() {
     _searchController.clear();
     setState(() => _searching = true);
+    // 主动聚焦：宽屏下输入栏启动即 autofocus 并持有 primary focus，
+    // 搜索框的 autofocus 不会生效，键输入会落进输入栏（评审 P1）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
   }
 
   /// 退出搜索：清空关键词，恢复时间流（滚动位置由 IndexedStack 保活）。
   void _exitSearch() {
+    _searchFocus.unfocus();
     _searchController.clear();
     setState(() => _searching = false);
   }
@@ -52,7 +60,7 @@ class _HomePageState extends State<HomePage> {
   Widget get _content => IndexedStack(
         index: _searching ? 1 : 0,
         children: [
-          StreamView(store: widget.store),
+          StreamView(store: widget.store, autoScroll: !_searching),
           SearchResults(
             store: widget.store,
             query: _searchController.text,
@@ -70,6 +78,7 @@ class _HomePageState extends State<HomePage> {
         Expanded(
           child: SearchField(
             controller: _searchController,
+            focusNode: _searchFocus,
             onChanged: (_) => setState(() {}),
             onExit: _exitSearch,
           ),
@@ -120,6 +129,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 title: SearchField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   onChanged: (_) => setState(() {}),
                   onExit: _exitSearch,
                 ),

@@ -8,9 +8,14 @@ import 'editor_sheet.dart';
 /// 时间流（ui-design §4）：时间升序、最新在底、按天分组（今天 / 昨天 /
 /// M月d日，跨年带年份）；打开、发送、切换笔记本后自动滚到底部。
 class StreamView extends StatefulWidget {
-  const StreamView({super.key, required this.store});
+  const StreamView({super.key, required this.store, this.autoScroll = true});
 
   final AppStore store;
+
+  /// 是否因「条目数变化」自动滚底。搜索态下由 HomePage 传 false：
+  /// 此时时间流处于 offstage，若仍滚底会破坏「退出搜索恢复滚动位置」
+  /// （ui-design §7）。笔记本切换始终滚底（§4），不受此开关影响。
+  final bool autoScroll;
 
   @override
   State<StreamView> createState() => _StreamViewState();
@@ -21,10 +26,22 @@ class _StreamViewState extends State<StreamView> {
   int _lastCount = -1;
   String _lastNotebookId = '';
 
+  /// 搜索态（offstage）下发生过新增：退出搜索后补一次滚底，
+  /// 保证「发送后滚底」（§4）在退出搜索时兑现，而删除不打扰阅读位置。
+  bool _pendingScroll = false;
+
   @override
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _scrollToBottomAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
   }
 
   @override
@@ -33,15 +50,29 @@ class _StreamViewState extends State<StreamView> {
     final count = entries.length;
     final notebookId = widget.store.currentNotebookId;
 
-    // 条目数或笔记本变化 → 帧渲染后滚到底部（主题等无关变更不触发）。
-    if (count != _lastCount || notebookId != _lastNotebookId) {
-      _lastCount = count;
-      _lastNotebookId = notebookId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
-        }
-      });
+    // 滚底规则（§4 与 §7 的优先级）：
+    // - 切换笔记本：始终滚底（§4）
+    // - 可见时的条目变化：滚底（§4「发送后自动滚底」）
+    // - 搜索态（offstage）：不立刻滚，保住退出搜索后的滚动位置（§7）；
+    //   但「新增」排队一次，退出搜索后滚底，「删除」不排队。
+    final notebookChanged = notebookId != _lastNotebookId;
+    final countChanged = count != _lastCount;
+    // 「新增」以长度增长判定：不能用「最新 id 变了」——删掉最新一条同样会
+    // 改变末位 id，会把删除误判成新增，从而在退出搜索时错误地滚到底部。
+    final added = count > _lastCount;
+    _lastNotebookId = notebookId;
+    _lastCount = count;
+
+    if (notebookChanged) {
+      _pendingScroll = false;
+      _scrollToBottomAfterFrame();
+    } else if (widget.autoScroll) {
+      if (countChanged || _pendingScroll) {
+        _pendingScroll = false;
+        _scrollToBottomAfterFrame();
+      }
+    } else if (added) {
+      _pendingScroll = true;
     }
 
     if (entries.isEmpty) {
@@ -96,7 +127,12 @@ class _DayHeader extends StatelessWidget {
 enum EntryAction { copy, edit, delete }
 
 /// 条目操作菜单（长按 / 右键的位置菜单，ui-design §8）。
-Future<EntryAction?> showEntryMenu(BuildContext context, Offset position) {
+/// [canCopy] 为 false（无可复制文本，如尚无转写/摘要的媒体条目）时不显示「复制」。
+Future<EntryAction?> showEntryMenu(
+  BuildContext context,
+  Offset position, {
+  bool canCopy = true,
+}) {
   final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   return showMenu<EntryAction>(
     context: context,
@@ -104,10 +140,11 @@ Future<EntryAction?> showEntryMenu(BuildContext context, Offset position) {
       position & Size.zero,
       Offset.zero & (overlay?.size ?? Size.zero),
     ),
-    items: const [
-      PopupMenuItem(value: EntryAction.copy, child: Text('复制')),
-      PopupMenuItem(value: EntryAction.edit, child: Text('编辑')),
-      PopupMenuItem(value: EntryAction.delete, child: Text('删除')),
+    items: [
+      if (canCopy)
+        const PopupMenuItem(value: EntryAction.copy, child: Text('复制')),
+      const PopupMenuItem(value: EntryAction.edit, child: Text('编辑')),
+      const PopupMenuItem(value: EntryAction.delete, child: Text('删除')),
     ],
   );
 }
@@ -128,8 +165,17 @@ class EntryTile extends StatelessWidget {
     return box.localToGlobal(box.size.center(Offset.zero));
   }
 
+  /// 可复制的文字面：文本条目取正文；媒体条目取转写/摘要
+  /// （ui-design §7 的终态规则：照片=摘要，录音=转写+摘要）。
+  String get _copyableText =>
+      entry.text ?? entry.transcript ?? entry.summary ?? '';
+
   Future<void> _showMenu(BuildContext context, Offset position) async {
-    final action = await showEntryMenu(context, position);
+    final action = await showEntryMenu(
+      context,
+      position,
+      canCopy: _copyableText.isNotEmpty,
+    );
     if (action == null || !context.mounted) return;
     switch (action) {
       case EntryAction.copy:
@@ -142,7 +188,9 @@ class EntryTile extends StatelessWidget {
   }
 
   Future<void> _copy(BuildContext context) async {
-    await Clipboard.setData(ClipboardData(text: entry.text ?? ''));
+    final text = _copyableText;
+    if (text.isEmpty) return; // 无文本可复制，不误报「已复制」
+    await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已复制'), duration: Duration(seconds: 2)),
@@ -154,6 +202,7 @@ class EntryTile extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final removed = await store.deleteEntry(entry.id);
+    if (!context.mounted) return;
     messenger.showSnackBar(undoSnackBar(store, removed));
   }
 
@@ -168,7 +217,9 @@ class EntryTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 用 Text 而非 SelectableText：后者的选择手势会吞掉本行的
-            // 点按（编辑）与长按（菜单），而「复制」已由菜单提供（§8）。
+            // 点按（编辑）与长按（菜单）；整条复制走上文菜单的「复制」（§8），
+            // 代价是正文不能局部选中。
+            // TODO(M6): 媒体条目按 §4 渲染（缩略图 / 播放行 + 摘要或转写首行兜底）。
             Text(
               entry.text ?? '',
               style: Theme.of(context).textTheme.bodyLarge,

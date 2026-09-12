@@ -167,12 +167,15 @@ class AppStore extends CoreChangeNotifier {
 
   /// 删除条目并返回被删快照，供 UI 层「撤销」使用（ui-design §8）。
   /// 快照归 store 层管理，UI 不自行缓存条目。
+  ///
+  /// 条目可能不在当前笔记本（UI 拿着旧 tile 操作时遇到切本竞态），
+  /// 因此按 [_locateEntry] 定位，始终在它真正所属的笔记本里修改。
   Future<Entry> deleteEntry(String entryId) async {
-    final list = _entries[_currentId] ??= [];
-    final i = list.indexWhere((e) => e.id == entryId);
-    if (i < 0) throw ArgumentError('条目不存在: $entryId');
-    final removed = list.removeAt(i);
-    await _storage.saveEntries(_currentId, list);
+    final located = _locateEntry(entryId);
+    if (located == null) throw ArgumentError('条目不存在: $entryId');
+    final (notebookId, list) = located;
+    final removed = list.removeAt(list.indexWhere((e) => e.id == entryId));
+    await _storage.saveEntries(notebookId, list);
     notifyListeners();
     return removed;
   }
@@ -215,12 +218,30 @@ class AppStore extends CoreChangeNotifier {
 
   Future<void> _replaceEntry(
       String entryId, Entry Function(Entry) transform) async {
-    final list = _entries[_currentId] ??= [];
+    final located = _locateEntry(entryId);
+    if (located == null) throw ArgumentError('条目不存在: $entryId');
+    final (notebookId, list) = located;
     final i = list.indexWhere((e) => e.id == entryId);
-    if (i < 0) throw ArgumentError('条目不存在: $entryId');
     list[i] = transform(list[i]);
-    await _storage.saveEntries(_currentId, list);
+    await _storage.saveEntries(notebookId, list);
     notifyListeners();
+  }
+
+  /// 定位条目：优先当前笔记本，其次其它已加载笔记本；找不到返回 null。
+  /// 让「跨本竞态」下不抛未捕获异常，并保证条目在所属笔记本内被修改
+  /// （ui-design §2「一条条目恰好属于一个笔记本」）。
+  (String, List<Entry>)? _locateEntry(String entryId) {
+    final current = _entries[_currentId];
+    if (current != null && current.any((e) => e.id == entryId)) {
+      return (_currentId, current);
+    }
+    for (final cached in _entries.entries) {
+      if (cached.key == _currentId) continue;
+      if (cached.value.any((e) => e.id == entryId)) {
+        return (cached.key, cached.value);
+      }
+    }
+    return null;
   }
 
   /// 校验并规范化笔记本名：trim、非空。

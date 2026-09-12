@@ -10,11 +10,19 @@ class SearchField extends StatelessWidget {
   const SearchField({
     super.key,
     required this.controller,
+    required this.focusNode,
     required this.onChanged,
     this.onExit,
   });
 
   final TextEditingController controller;
+
+  /// 显式焦点节点：由 HomePage 在进入搜索时 `requestFocus()`。
+  /// 不能只靠 `autofocus`——宽屏下输入栏启动即持有 primary focus，
+  /// 此时 autofocus 是空操作，输入会落进输入栏、Enter 变成新建条目
+  /// （M4 评审 P1）。
+  final FocusNode focusNode;
+
   final ValueChanged<String> onChanged;
   final VoidCallback? onExit;
 
@@ -31,7 +39,7 @@ class SearchField extends StatelessWidget {
       },
       child: TextField(
         controller: controller,
-        autofocus: true,
+        focusNode: focusNode,
         decoration: const InputDecoration(
           hintText: '搜索当前笔记本…',
           border: InputBorder.none,
