@@ -165,13 +165,33 @@ class AppStore extends CoreChangeNotifier {
     await _replaceEntry(entryId, (e) => e.copyWith(text: t));
   }
 
-  Future<void> deleteEntry(String entryId) async {
+  /// 删除条目并返回被删快照，供 UI 层「撤销」使用（ui-design §8）。
+  /// 快照归 store 层管理，UI 不自行缓存条目。
+  Future<Entry> deleteEntry(String entryId) async {
     final list = _entries[_currentId] ??= [];
-    if (!list.any((e) => e.id == entryId)) {
-      throw ArgumentError('条目不存在: $entryId');
-    }
-    list.removeWhere((e) => e.id == entryId);
+    final i = list.indexWhere((e) => e.id == entryId);
+    if (i < 0) throw ArgumentError('条目不存在: $entryId');
+    final removed = list.removeAt(i);
     await _storage.saveEntries(_currentId, list);
+    notifyListeners();
+    return removed;
+  }
+
+  /// 撤销删除：把条目放回其所属笔记本，按 (createdAt, id) 复位排序。
+  ///
+  /// 若原笔记本已被删除，则落到当前笔记本并重写归属——维持
+  /// 「一条条目恰好属于一个笔记本」不变式（ui-design §2）。
+  /// 幂等：条目已在列表中时不做任何事。
+  Future<void> restoreEntry(Entry entry) async {
+    final exists = _notebooks.any((n) => n.id == entry.notebookId);
+    final targetId = exists ? entry.notebookId : _currentId;
+    final restored =
+        exists ? entry : entry.copyWith(notebookId: targetId);
+    final list = await _loadEntriesOf(targetId);
+    if (list.any((e) => e.id == restored.id)) return;
+    list.add(restored);
+    _sort(list);
+    await _storage.saveEntries(targetId, list);
     notifyListeners();
   }
 

@@ -99,12 +99,50 @@ void main() {
       expect(again.entries.single.text, '新');
     });
 
-    test('删除并持久化', () async {
+    test('删除并持久化，返回可回滚快照（§8 撤销）', () async {
       final s = await reload();
       final e = await s.addText('待删除');
-      await s.deleteEntry(e.id);
+      final removed = await s.deleteEntry(e.id);
+      expect(removed.id, e.id);
+      expect(removed.text, '待删除');
       expect(s.entries, isEmpty);
       expect((await reload()).entries, isEmpty);
+    });
+
+    test('撤销删除：复位到原位置并持久化', () async {
+      await storage.saveEntries('default', [
+        textEntry('a', '第一条', created: 1000),
+        textEntry('b', '第二条', created: 2000),
+        textEntry('c', '第三条', created: 3000),
+      ]);
+      final s = await reload();
+      final removed = await s.deleteEntry('b');
+      expect(s.entries.map((e) => e.id), ['a', 'c']);
+
+      await s.restoreEntry(removed);
+      expect(s.entries.map((e) => e.id), ['a', 'b', 'c']); // 按时间复位
+      expect((await reload()).entries.map((e) => e.id), ['a', 'b', 'c']);
+    });
+
+    test('撤销时原笔记本已删除：落到当前笔记本并重写归属', () async {
+      final s = await reload();
+      final work = await s.createNotebook('工作');
+      await s.addText('工作里的条目');
+      final removed = await s.deleteEntry(s.entries.single.id);
+      await s.deleteNotebook(work.id); // 撤销窗口内删掉了该笔记本
+
+      await s.restoreEntry(removed);
+      expect(s.entries.single.text, '工作里的条目');
+      expect(s.entries.single.notebookId, Notebook.defaultId);
+    });
+
+    test('撤销是幂等的', () async {
+      final s = await reload();
+      final e = await s.addText('只此一条');
+      final removed = await s.deleteEntry(e.id);
+      await s.restoreEntry(removed);
+      await s.restoreEntry(removed);
+      expect(s.entries, hasLength(1));
     });
 
     test('未知条目 id 抛错', () async {
