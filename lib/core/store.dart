@@ -207,6 +207,10 @@ class AppStore extends CoreChangeNotifier {
     return entry;
   }
 
+  /// 媒体文件的绝对路径（供播放/查看使用，父目录会被创建）。
+  Future<String> mediaAbsolutePath(String relativePath) =>
+      _storage.prepareMediaPath(relativePath);
+
   /// 丢弃尚未登记的媒体文件（录音点 ✗、时长过短，ui-design §5.2）。
   Future<void> discardMedia(String relativePath) =>
       _storage.deleteMedia(relativePath);

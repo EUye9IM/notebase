@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import 'editor_sheet.dart';
+import 'media_player.dart';
 
 /// 时间流（ui-design §4）：时间升序、最新在底、按天分组（今天 / 昨天 /
 /// M月d日，跨年带年份）；打开、发送、切换笔记本后自动滚到底部。
@@ -214,8 +215,9 @@ Future<EntryAction?> showEntryMenu(
 
 /// 时间流与搜索结果共用的条目行（ui-design §4 / §8）。
 ///
-/// 点按 = 编辑底 sheet；长按（触屏）/ 右键（桌面）= 复制 / 编辑 / 删除。
-/// 删除走「确认 → toast + 5s 撤销」，撤销快照来自 store 层。
+/// 按类型渲染：文本=正文；音频=播放行（时长/进度）+ 文字面；照片=占位（M6d 换缩略图）。
+/// 点按：文本=编辑底 sheet，音频=内联播放/暂停（§8），照片=查看器（M6d）。
+/// 长按（触屏）/ 右键（桌面）= 复制 / 编辑转写与摘要 / 删除。
 class EntryTile extends StatelessWidget {
   const EntryTile({super.key, required this.store, required this.entry});
 
@@ -250,6 +252,30 @@ class EntryTile extends StatelessWidget {
     }
   }
 
+  /// 媒体条目的文字面：摘要优先；无摘要但有转写时用转写首行兜底（§4）。
+  String? get _caption {
+    final summary = entry.summary?.trim();
+    if (summary != null && summary.isNotEmpty) return summary;
+    final transcript = entry.transcript?.trim();
+    if (transcript != null && transcript.isNotEmpty) {
+      return transcript.split('\n').first;
+    }
+    return null;
+  }
+
+  void _handleTap(BuildContext context) {
+    switch (entry.type) {
+      case EntryType.text:
+        showEntryEditor(context, store, entry);
+      case EntryType.audio:
+        // §8：音频条目的点按 = 列表内联播放/暂停
+        PlaybackScope.read(context)?.toggle(entry);
+      case EntryType.photo:
+        // M6d：全屏查看器
+        break;
+    }
+  }
+
   Future<void> _copy(BuildContext context) async {
     final text = _copyableText;
     if (text.isEmpty) return; // 无文本可复制，不误报「已复制」
@@ -271,8 +297,10 @@ class EntryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final caption = _caption;
+    final theme = Theme.of(context);
     final row = InkWell(
-      onTap: () => showEntryEditor(context, store, entry),
+      onTap: () => _handleTap(context),
       onLongPress: () => _showMenu(context, _anchor(context)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -280,19 +308,31 @@ class EntryTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 用 Text 而非 SelectableText：后者的选择手势会吞掉本行的
-            // 点按（编辑）与长按（菜单）；整条复制走上文菜单的「复制」（§8），
+            // 点按（编辑/播放）与长按（菜单）；整条复制走菜单的「复制」（§8），
             // 代价是正文不能局部选中。
-            // TODO(M6): 媒体条目按 §4 渲染（缩略图 / 播放行 + 摘要或转写首行兜底）。
-            Text(
-              entry.text ?? '',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
+            switch (entry.type) {
+              EntryType.text => Text(
+                  entry.text ?? '',
+                  style: theme.textTheme.bodyLarge,
+                ),
+              EntryType.audio => _AudioRow(entry: entry),
+              EntryType.photo => _PhotoPlaceholder(entry: entry),
+            },
+            if (caption != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                caption,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
             const SizedBox(height: 2),
             Text(
               _timeLabel(entry.createdAt),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -324,4 +364,66 @@ String dayLabel(DateTime date, {DateTime? now}) {
 String _timeLabel(DateTime t) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${two(t.hour)}:${two(t.minute)}';
+}
+
+/// 音频行（ui-design §4）：`[▶/⏸] 时长 进度条`，播放中显示进度。
+class _AudioRow extends StatelessWidget {
+  const _AudioRow({required this.entry});
+
+  final Entry entry;
+
+  static String durationLabel(double? seconds) {
+    if (seconds == null) return '--:--';
+    final d = Duration(milliseconds: (seconds * 1000).round());
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 依赖 PlaybackScope：只有音频行会随播放进度重建（文本行不依赖）。
+    final playback = PlaybackScope.maybeOf(context);
+    final playing = playback?.isPlaying(entry.id) ?? false;
+    final progress = playback?.progressFor(entry) ?? 0;
+    final colors = Theme.of(context).colorScheme;
+    final playable = playback != null && playback.available && entry.file != null;
+
+    return Row(children: [
+      Icon(
+        playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
+        size: 32,
+        color: playable ? colors.primary : colors.outlineVariant,
+      ),
+      const SizedBox(width: 8),
+      Text(
+        durationLabel(entry.duration),
+        style: Theme.of(context).textTheme.labelMedium,
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: LinearProgressIndicator(
+          value: progress.clamp(0.0, 1.0),
+          minHeight: 4,
+          backgroundColor: colors.surfaceContainerHighest,
+        ),
+      ),
+    ]);
+  }
+}
+
+/// 照片行占位：M6d 换成等比缩略图 + 全屏查看器。
+class _PhotoPlaceholder extends StatelessWidget {
+  const _PhotoPlaceholder({required this.entry});
+
+  final Entry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Row(children: [
+      Icon(Icons.image_outlined, size: 32, color: colors.outline),
+      const SizedBox(width: 8),
+      Text('图片', style: Theme.of(context).textTheme.labelMedium),
+    ]);
+  }
 }
