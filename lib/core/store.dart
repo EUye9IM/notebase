@@ -164,21 +164,38 @@ class AppStore extends CoreChangeNotifier {
   static String mediaPathFor(String entryId, String extension) =>
       'media/$entryId.$extension';
 
-  /// 新增一条媒体条目（照片 / 录音）。文件由调用方先行落盘，这里只登记引用
-  /// ——core 不解读媒体内容。
+  /// 为即将录制的媒体准备临时落点。返回绝对路径（交给录音器写）与相对路径
+  /// （交给 [addMedia] / [discardMedia]）；位置约定由 core 决定，UI 不拼路径。
+  Future<({String absolutePath, String relativePath})> prepareMediaTemp(
+    String extension,
+  ) async {
+    final relativePath = 'media/.tmp/${_uid()}.$extension';
+    final absolute = await _storage.prepareMediaPath(relativePath);
+    return (absolutePath: absolute, relativePath: relativePath);
+  }
+
+  /// 新增一条媒体条目：把临时文件归档到 `media/<entry-id>.<ext>` 并登记引用
+  /// ——core 不解读媒体内容，只负责落点与归属。
   Future<Entry> addMedia({
     required EntryType type,
-    required String file,
+    required String sourceRelativePath,
+    required String extension,
     double? duration,
   }) async {
     if (type == EntryType.text) {
       throw ArgumentError('文本条目请用 addText');
     }
+    final id = _uid();
+    final relativePath = mediaPathFor(id, extension);
+    await _storage.adoptMedia(
+      sourcePath: sourceRelativePath,
+      relativePath: relativePath,
+    );
     final entry = Entry(
-      id: _uid(),
+      id: id,
       notebookId: _currentId,
       type: type,
-      file: file,
+      file: relativePath,
       duration: duration,
       createdAt: DateTime.now(),
     );
@@ -189,6 +206,10 @@ class AppStore extends CoreChangeNotifier {
     notifyListeners();
     return entry;
   }
+
+  /// 丢弃尚未登记的媒体文件（录音点 ✗、时长过短，ui-design §5.2）。
+  Future<void> discardMedia(String relativePath) =>
+      _storage.deleteMedia(relativePath);
 
   /// 编辑录音转写全文（null / 空白 = 删除该字段，ui-design §8）。
   Future<void> updateEntryTranscript(String entryId, String? transcript) =>

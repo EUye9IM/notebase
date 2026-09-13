@@ -106,6 +106,22 @@ class JsonFileStorage implements Storage {
   }
 
   @override
+  Future<void> adoptMedia({
+    required String sourcePath,
+    required String relativePath,
+  }) async {
+    final source = _mediaFile(sourcePath);
+    final target = _mediaFile(relativePath);
+    if (!await target.parent.exists()) await target.parent.create(recursive: true);
+    try {
+      await source.rename(target.path); // 同盘：原子移动
+    } on FileSystemException {
+      await source.copy(target.path); // 跨设备退化
+      await source.delete();
+    }
+  }
+
+  @override
   Future<void> deleteMedia(String relativePath) async {
     final file = _mediaFile(relativePath);
     if (await file.exists()) await file.delete();

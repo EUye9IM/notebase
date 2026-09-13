@@ -49,6 +49,15 @@ class MemoryStorage implements Storage {
   }
 
   @override
+  Future<void> adoptMedia({
+    required String sourcePath,
+    required String relativePath,
+  }) async {
+    final bytes = media.remove(sourcePath) ?? 1; // 模拟移动
+    media[relativePath] = bytes;
+  }
+
+  @override
   Future<void> deleteMedia(String relativePath) async {
     media.remove(relativePath);
   }

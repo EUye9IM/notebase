@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/store.dart';
 import 'input_bar.dart';
+import 'media_recorder.dart';
 import 'notebook_list.dart';
 import 'search_view.dart';
 import 'settings_view.dart';
@@ -16,9 +17,17 @@ import 'stream_view.dart';
 /// 退出后恢复原流与滚动位置（靠 IndexedStack 保活时间流实现）。
 /// 笔记本管理（§6）见 notebook_list.dart。
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.store, this.startupNotice});
+  const HomePage({
+    super.key,
+    required this.store,
+    this.startupNotice,
+    this.recorder,
+  });
 
   final AppStore store;
+
+  /// 录音能力，透传给输入栏（§5.2）。
+  final MediaRecorder? recorder;
 
   /// 启动期提示（数据损坏等），显示为可关闭的提示条（ui-design §10）。
   final String? startupNotice;
@@ -149,6 +158,7 @@ class _HomePageState extends State<HomePage> {
                       wide: true,
                       focusNode: _inputFocus,
                       drafts: _drafts,
+                      recorder: widget.recorder,
                     ),
                   ]),
                 ),
@@ -220,7 +230,12 @@ class _HomePageState extends State<HomePage> {
         body: Column(children: [
           _notice,
           Expanded(child: _content),
-          InputBar(store: widget.store, wide: false, drafts: _drafts),
+          InputBar(
+            store: widget.store,
+            wide: false,
+            drafts: _drafts,
+            recorder: widget.recorder,
+          ),
         ]),
       );
     });

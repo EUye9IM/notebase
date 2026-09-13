@@ -4,12 +4,21 @@ import '../core/model.dart';
 import '../core/store.dart';
 import 'home.dart';
 import 'listenable_bridge.dart';
+import 'media_recorder.dart';
 
 /// 应用根：主题偏好驱动 MaterialApp，全局监听 store 变更。
 class NotebaseApp extends StatefulWidget {
-  const NotebaseApp({super.key, required this.store, this.startupNotice});
+  const NotebaseApp({
+    super.key,
+    required this.store,
+    this.startupNotice,
+    this.recorder,
+  });
 
   final AppStore store;
+
+  /// 录音能力（§5.2）。由 main 注入真实实现，测试注入假实现。
+  final MediaRecorder? recorder;
 
   /// 启动期数据损坏等需要告知用户的信息（ui-design §10），可关闭。
   final String? startupNotice;
@@ -58,6 +67,7 @@ class _NotebaseAppState extends State<NotebaseApp> {
         home: HomePage(
           store: widget.store,
           startupNotice: widget.startupNotice,
+          recorder: widget.recorder,
         ),
       ),
     );

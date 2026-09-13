@@ -18,6 +18,12 @@ abstract class Storage {
   /// 内容，只提供落点——录音/导入由 UI 层的平台能力完成。
   Future<String> prepareMediaPath(String relativePath);
 
+  /// 把已落盘的临时媒体移动到正式位置（`media/<entry-id>.<ext>`）。
+  Future<void> adoptMedia({
+    required String sourcePath,
+    required String relativePath,
+  });
+
   /// 删除媒体文件；文件不存在则忽略。
   Future<void> deleteMedia(String relativePath);
 

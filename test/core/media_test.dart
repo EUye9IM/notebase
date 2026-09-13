@@ -15,32 +15,30 @@ void main() {
       final storage = MemoryStorage();
       final store = await AppStore.load(storage);
 
-      final audio = await store.addMedia(
-        type: EntryType.audio,
-        file: AppStore.mediaPathFor('a1', 'ogg'),
-        duration: 3.5,
-      );
-      final photo = await store.addMedia(
-        type: EntryType.photo,
-        file: AppStore.mediaPathFor('p1', 'png'),
-      );
+      final audio = await _recordAudio(store, storage, duration: 3.5);
+      final photo = await _importPhoto(store, storage);
 
       expect(audio.type, EntryType.audio);
-      expect(audio.file, 'media/a1.ogg');
+      expect(audio.file, 'media/${audio.id}.ogg'); // 文件名 = 条目 id
       expect(audio.duration, 3.5);
       expect(audio.notebookId, Notebook.defaultId);
       expect(photo.type, EntryType.photo);
       expect(photo.text, isNull);
+      expect(photo.file, 'media/${photo.id}.png');
 
       final reloaded = await AppStore.load(storage);
       expect(reloaded.entries, hasLength(2));
-      expect(reloaded.entries.last.file, 'media/p1.png'); // 升序，最新在末尾
+      expect(reloaded.entries.last.file, photo.file); // 升序，最新在末尾
     });
 
     test('addMedia 拒绝文本类型', () async {
       final store = await AppStore.load(MemoryStorage());
       await expectLater(
-        store.addMedia(type: EntryType.text, file: 'media/x.txt'),
+        store.addMedia(
+          type: EntryType.text,
+          sourceRelativePath: 'media/.tmp/x.ogg',
+          extension: 'ogg',
+        ),
         throwsArgumentError,
       );
     });
@@ -48,11 +46,7 @@ void main() {
     test('录音：转写与摘要可设可清（空 = 删除该字段）并持久化', () async {
       final storage = MemoryStorage();
       final store = await AppStore.load(storage);
-      final entry = await store.addMedia(
-        type: EntryType.audio,
-        file: 'media/a1.ogg',
-        duration: 2,
-      );
+      final entry = await _recordAudio(store, storage, duration: 2);
 
       await store.updateEntryTranscript(entry.id, '  跟师傅约了周三  ');
       await store.updateEntrySummary(entry.id, '装修');
@@ -68,25 +62,18 @@ void main() {
     });
 
     test('照片：只有摘要可编辑，转写仍可写但不显示（模型层不设限）', () async {
-      final store = await AppStore.load(MemoryStorage());
-      final photo = await store.addMedia(
-        type: EntryType.photo,
-        file: 'media/p1.png',
-      );
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      final photo = await _importPhoto(store, storage);
       await store.updateEntrySummary(photo.id, '瓷砖型号');
       expect(store.entries.single.summary, '瓷砖型号');
     });
 
     test('搜索命中媒体：照片看摘要，录音看转写或摘要（§7 终态规则）', () async {
-      final store = await AppStore.load(MemoryStorage());
-      final audio = await store.addMedia(
-        type: EntryType.audio,
-        file: 'media/a1.ogg',
-      );
-      final photo = await store.addMedia(
-        type: EntryType.photo,
-        file: 'media/p1.png',
-      );
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      final audio = await _recordAudio(store, storage);
+      final photo = await _importPhoto(store, storage);
       await store.updateEntryTranscript(audio.id, '跟师傅约了周三上门');
       await store.updateEntrySummary(photo.id, '瓷砖型号确认');
 
@@ -96,11 +83,9 @@ void main() {
     });
 
     test('媒体条目也可编辑正文？不——updateEntryText 对媒体不适用但不会崩', () async {
-      final store = await AppStore.load(MemoryStorage());
-      final photo = await store.addMedia(
-        type: EntryType.photo,
-        file: 'media/p1.png',
-      );
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      final photo = await _importPhoto(store, storage);
       // 模型允许写 text，但 UI 不会对媒体走这条路径；此处只保证不抛错。
       await store.updateEntryText(photo.id, '备注');
       expect(store.entries.single.text, '备注');
@@ -146,20 +131,64 @@ void main() {
       );
     });
 
-    test('删除条目不删除媒体文件（撤销窗口内仍需要它）', () async {
+    test('临时文件归档为 media/<条目 id>.ogg；删除条目不删文件', () async {
       final store = await AppStore.load(storage);
-      final path = await storage.prepareMediaPath('media/a1.ogg');
-      await File(path).writeAsBytes([1, 2, 3]);
+      final temp = await store.prepareMediaTemp('ogg');
+      await File(temp.absolutePath).writeAsBytes([1, 2, 3]);
+
       final entry = await store.addMedia(
         type: EntryType.audio,
-        file: 'media/a1.ogg',
+        sourceRelativePath: temp.relativePath,
+        extension: 'ogg',
+        duration: 2,
       );
+
+      final finalPath = '${dir.path}/${entry.file}';
+      expect(File(temp.absolutePath).existsSync(), isFalse); // 临时文件已移走
+      expect(File(finalPath).existsSync(), isTrue);
 
       final removed = await store.deleteEntry(entry.id);
       await store.restoreEntry(removed); // 撤销可用：文件还在
 
-      expect(store.entries.single.file, 'media/a1.ogg');
-      expect(File(path).existsSync(), isTrue);
+      expect(store.entries.single.file, entry.file);
+      expect(File(finalPath).existsSync(), isTrue);
+    });
+
+    test('discardMedia 删除未登记的临时文件', () async {
+      final store = await AppStore.load(storage);
+      final temp = await store.prepareMediaTemp('ogg');
+      await File(temp.absolutePath).writeAsBytes([1, 2, 3]);
+
+      await store.discardMedia(temp.relativePath);
+      expect(File(temp.absolutePath).existsSync(), isFalse);
+      expect(store.entries, isEmpty);
     });
   });
+}
+
+/// 模拟一次录音：准备临时落点 → 写字节 → 归档为条目。
+Future<Entry> _recordAudio(
+  AppStore store,
+  MemoryStorage storage, {
+  double? duration,
+}) async {
+  final temp = await store.prepareMediaTemp('ogg');
+  await storage.prepareMediaPath(temp.relativePath);
+  return store.addMedia(
+    type: EntryType.audio,
+    sourceRelativePath: temp.relativePath,
+    extension: 'ogg',
+    duration: duration,
+  );
+}
+
+/// 模拟一次图片导入。
+Future<Entry> _importPhoto(AppStore store, MemoryStorage storage) async {
+  final temp = await store.prepareMediaTemp('png');
+  await storage.prepareMediaPath(temp.relativePath);
+  return store.addMedia(
+    type: EntryType.photo,
+    sourceRelativePath: temp.relativePath,
+    extension: 'png',
+  );
 }
