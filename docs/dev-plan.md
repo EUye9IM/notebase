@@ -102,7 +102,11 @@ lib/
 
 ## 4. 风险与开放问题
 
-- **媒体插件 Linux 成熟度**：M6 开始前做一轮 spike（录音→播放→文件落盘），不阻塞文本线。
+- **媒体插件 Linux 成熟度**：✅ M6 前 spike 已完成（隔离工程实测，2026-09 于本机）：
+  录音 `record`（后端 `parecord` + `ffmpeg`，二者本机已装）→ 落盘 OK；播放 `audioplayers`（GStreamer）
+  在**基础插件集**下只能解码 ogg/opus、wav、flac、vorbis，**不能解码 aac/m4a**（缺 good/bad/libav）；
+  图片导入用 `file_selector`（GTK 原生对话框，不依赖 zenity）；**Linux 无应用内拍照**（camera 插件不支持）。
+  选型结论：录音 ogg/Opus、播放 audioplayers、导入 file_selector。
 - **JSON 全量写的性能上限**：每条变更全量序列化单笔记本文件。触发条件（单本条目过万 / 写入卡顿）出现时提前 M7，不为预防而提前。
 - **旧原型数据**：`shared_preferences` 里的旧笔记为原型数据，M1 直接废弃不迁移；主题偏好重置为默认可接受。
 - **写入并发**（M3 评审后已修）：`JsonFileStorage` 按路径串行化 + 唯一 tmp 名；修前实测并发写 120/120 轮 `PathNotFoundException`、300 轮中 1 轮静默丢数据，回归测试已固化（`json_storage_test.dart`）。

@@ -88,6 +88,29 @@ class JsonFileStorage implements Storage {
         [for (final e in entries) e.toJson()],
       );
 
+  /// 拒绝越界路径：媒体相对路径必须落在应用数据目录内。
+  File _mediaFile(String relativePath) {
+    if (relativePath.startsWith('/') ||
+        relativePath.split('/').contains('..')) {
+      throw ArgumentError('媒体路径必须是数据目录内的相对路径: $relativePath');
+    }
+    return File('$baseDir/$relativePath');
+  }
+
+  @override
+  Future<String> prepareMediaPath(String relativePath) async {
+    final file = _mediaFile(relativePath);
+    final dir = file.parent;
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return file.path;
+  }
+
+  @override
+  Future<void> deleteMedia(String relativePath) async {
+    final file = _mediaFile(relativePath);
+    if (await file.exists()) await file.delete();
+  }
+
   /// 隔离无法解析的数据文件：重命名为 `<名>.corrupt-<时间戳>`，
   /// 返回被隔离的文件名列表（供 UI 告知用户）。
   ///

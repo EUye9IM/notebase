@@ -12,6 +12,15 @@ abstract class Storage {
   Future<Prefs> loadPrefs();
   Future<void> savePrefs(Prefs prefs);
 
+  /// 媒体文件的绝对路径（父目录会被创建）。
+  ///
+  /// 相对路径约定见 ui-design §2：`media/<entry-id>.<ext>`。core 不解读媒体
+  /// 内容，只提供落点——录音/导入由 UI 层的平台能力完成。
+  Future<String> prepareMediaPath(String relativePath);
+
+  /// 删除媒体文件；文件不存在则忽略。
+  Future<void> deleteMedia(String relativePath);
+
   /// 隔离无法解析的数据，返回被隔离项的描述（供 UI 告知用户）。
   ///
   /// 用于启动期数据损坏兜底（ui-design §10）：默认无操作，文件型实现会

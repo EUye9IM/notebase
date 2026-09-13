@@ -160,6 +160,55 @@ class AppStore extends CoreChangeNotifier {
     return entry;
   }
 
+  /// 媒体条目的相对路径约定（ui-design §2）。
+  static String mediaPathFor(String entryId, String extension) =>
+      'media/$entryId.$extension';
+
+  /// 新增一条媒体条目（照片 / 录音）。文件由调用方先行落盘，这里只登记引用
+  /// ——core 不解读媒体内容。
+  Future<Entry> addMedia({
+    required EntryType type,
+    required String file,
+    double? duration,
+  }) async {
+    if (type == EntryType.text) {
+      throw ArgumentError('文本条目请用 addText');
+    }
+    final entry = Entry(
+      id: _uid(),
+      notebookId: _currentId,
+      type: type,
+      file: file,
+      duration: duration,
+      createdAt: DateTime.now(),
+    );
+    final list = _entries.putIfAbsent(_currentId, () => []);
+    list.add(entry);
+    _sort(list);
+    await _storage.saveEntries(_currentId, list);
+    notifyListeners();
+    return entry;
+  }
+
+  /// 编辑录音转写全文（null / 空白 = 删除该字段，ui-design §8）。
+  Future<void> updateEntryTranscript(String entryId, String? transcript) =>
+      _replaceEntry(
+        entryId,
+        (e) => e.copyWith(transcript: _normalizeOptional(transcript)),
+      );
+
+  /// 编辑媒体摘要（null / 空白 = 删除该字段，ui-design §8）。
+  Future<void> updateEntrySummary(String entryId, String? summary) =>
+      _replaceEntry(
+        entryId,
+        (e) => e.copyWith(summary: _normalizeOptional(summary)),
+      );
+
+  static String? _normalizeOptional(String? text) {
+    final trimmed = text?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+  }
+
   /// 编辑文本（不改 createdAt，排序不变，ui-design §8）。
   Future<void> updateEntryText(String entryId, String text) async {
     final t = text.trim();
@@ -169,6 +218,9 @@ class AppStore extends CoreChangeNotifier {
 
   /// 删除条目并返回被删快照，供 UI 层「撤销」使用（ui-design §8）。
   /// 快照归 store 层管理，UI 不自行缓存条目。
+  ///
+  /// **不删除媒体文件**：撤销窗口内仍需要它（删了会让撤销出「媒体已丢失」）。
+  /// 无主媒体的清理见 dev-plan §7 待办。
   ///
   /// 条目可能不在当前笔记本（UI 拿着旧 tile 操作时遇到切本竞态），
   /// 因此按 [_locateEntry] 定位，始终在它真正所属的笔记本里修改。

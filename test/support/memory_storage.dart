@@ -39,6 +39,20 @@ class MemoryStorage implements Storage {
     _prefs = prefs;
   }
 
+  /// 内存「磁盘」：相对路径 → 内容字节数（测试断言用）。
+  final media = <String, int>{};
+
+  @override
+  Future<String> prepareMediaPath(String relativePath) async {
+    media.putIfAbsent(relativePath, () => 0);
+    return '/memory/$relativePath';
+  }
+
+  @override
+  Future<void> deleteMedia(String relativePath) async {
+    media.remove(relativePath);
+  }
+
   /// 默认不隔离；测试可赋值以模拟「坏文件已隔离」的返回。
   List<String> quarantineResult = const [];
 
