@@ -3,9 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../core/model.dart';
 import '../core/store.dart';
-import 'media_recorder.dart';
+import 'recording_session.dart';
 
 /// 常驻输入栏（ui-design §5.1）：
 /// - 文本：窄屏 Enter = 换行、➤ 发送；宽屏 Enter = 发送、Shift+Enter = 换行；
@@ -37,7 +36,7 @@ class InputBar extends StatefulWidget {
     required this.wide,
     this.focusNode,
     this.drafts,
-    this.recorder,
+    required this.session,
   });
 
   final AppStore store;
@@ -49,9 +48,9 @@ class InputBar extends StatefulWidget {
   /// 外部持有的草稿暂存（见 [DraftStore]）。
   final DraftStore? drafts;
 
-  /// 注入的录音能力（§5.2）。为 null 时 🎤 置灰——测试与不支持录音的平台
-  /// 都不会碰到平台通道。
-  final MediaRecorder? recorder;
+  /// 录音会话（§5.2）。由 HomePage 持有，跨布局重建存活；无录音能力时
+  /// `session.available` 为 false，🎤 置灰。
+  final RecordingSession session;
 
   @override
   State<InputBar> createState() => _InputBarState();
@@ -70,16 +69,11 @@ class _InputBarState extends State<InputBar> {
   bool _hasText = false;
   bool _sending = false;
 
-  /// 录音态（§5.2）：true 时输入栏整体替换为录音条。
-  bool _recording = false;
-  bool _busy = false; // 启动/停止录音的过渡，避免连点
-  Duration _elapsed = Duration.zero;
-  double _level = 0;
-  Timer? _ticker;
-  ({String absolutePath, String relativePath})? _recordingTemp;
-
   /// 程序化改写输入框内容时置位，避免触发 onChanged 的 setState。
   bool _swapping = false;
+
+  /// 录音会话的异步提示（中断保存等）。
+  StreamSubscription<String>? _messages;
 
   @override
   void initState() {
@@ -91,6 +85,7 @@ class _InputBarState extends State<InputBar> {
     _swapping = false;
     _hasText = restored.trim().isNotEmpty;
     _controller.addListener(_onTextChanged);
+    _messages = widget.session.messages.listen(_toast);
   }
 
   @override
@@ -108,10 +103,17 @@ class _InputBarState extends State<InputBar> {
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _messages?.cancel();
     widget.drafts?.write(_notebookId, _controller.text); // 布局重建时兜底
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    if (_swapping) return;
+    widget.drafts?.write(_notebookId, _controller.text);
+    final has = _controller.text.trim().isNotEmpty;
+    if (has != _hasText) setState(() => _hasText = has);
   }
 
   void _toast(String message) {
@@ -121,170 +123,9 @@ class _InputBarState extends State<InputBar> {
     );
   }
 
-  // ---------- 录音（ui-design §5.2） ----------
-
-  void _stopTicker() {
-    _ticker?.cancel();
-    _ticker = null;
-  }
-
   Future<void> _startRecording() async {
-    final recorder = widget.recorder;
-    if (recorder == null || _recording || _busy) return;
-    setState(() => _busy = true);
-    try {
-      final reason = await recorder.unavailableReason();
-      if (!mounted) return;
-      if (reason != null) {
-        _toast(reason); // 缺二进制 / 无权限：明确告知，不静默失败
-        return;
-      }
-      final temp = await widget.store.prepareMediaTemp('ogg');
-      await recorder.start(temp.absolutePath);
-      if (!mounted) return;
-      setState(() {
-        _recording = true;
-        _recordingTemp = temp;
-        _elapsed = Duration.zero;
-        _level = 0;
-      });
-      _ticker = Timer.periodic(
-        const Duration(milliseconds: 100),
-        (_) => _tick(),
-      );
-    } on Object catch (error) {
-      _toast('无法开始录音：$error');
-    } finally {
-      if (mounted) {
-        setState(() => _busy = false);
-      } else {
-        _busy = false;
-      }
-    }
-  }
-
-  Future<void> _tick() async {
-    if (!mounted || !_recording) return;
-    setState(() => _elapsed += const Duration(milliseconds: 100));
-    try {
-      final level = await widget.recorder!.level();
-      if (mounted && _recording) setState(() => _level = level);
-    } on Object {
-      // §10：录音被系统打断——保存已录部分，不静默丢失。
-      await _finishRecording();
-    }
-  }
-
-  /// ✓ 停止并保存；时长不足 1s 视为误触丢弃（§5.2）。
-  Future<void> _stopAndSave() async {
-    final recorder = widget.recorder;
-    if (recorder == null || !_recording || _busy) return;
-    _stopTicker();
-    setState(() => _busy = true);
-
-    Duration duration = _elapsed;
-    try {
-      duration = await recorder.stop();
-    } on Object catch (error) {
-      _toast('停止录音出错：$error');
-    }
-    await _commitRecording(duration);
-  }
-
-  /// ✗ 立即丢弃，不确认（§5.2）。
-  Future<void> _discardRecording() async {
-    final recorder = widget.recorder;
-    if (recorder == null || !_recording || _busy) return;
-    _stopTicker();
-    setState(() => _busy = true);
-    try {
-      await recorder.discard();
-    } on Object {
-      // 丢弃失败也要把临时文件清掉，避免留下孤儿
-    }
-    await _cleanupRecording();
-    if (mounted) {
-      setState(() {
-        _recording = false;
-        _elapsed = Duration.zero;
-        _level = 0;
-        _busy = false;
-      });
-    } else {
-      _busy = false;
-    }
-  }
-
-  /// 中断兜底：尽力停下录音并把已录部分入库（ui-design §10）。
-  Future<void> _finishRecording() async {
-    if (!_recording) return;
-    _stopTicker();
-    Duration duration = _elapsed;
-    try {
-      duration = await widget.recorder!.stop();
-    } on Object {
-      // 用已计时长兜底
-    }
-    if (mounted) {
-      _toast('录音被中断，已保存已录部分');
-    }
-    await _commitRecording(duration);
-  }
-
-  Future<void> _commitRecording(Duration duration) async {
-    final temp = _recordingTemp;
-    _recordingTemp = null;
-    if (temp == null) {
-      if (mounted) setState(() => _recording = false);
-      return;
-    }
-    if (duration < const Duration(seconds: 1)) {
-      await widget.store.discardMedia(temp.relativePath); // 误触：丢弃
-      if (mounted) {
-        setState(() {
-          _recording = false;
-          _busy = false;
-          _elapsed = Duration.zero;
-          _level = 0;
-        });
-        _toast('太短了');
-      }
-      return;
-    }
-    try {
-      await widget.store.addMedia(
-        type: EntryType.audio,
-        sourceRelativePath: temp.relativePath,
-        extension: 'ogg',
-        duration: duration.inMilliseconds / 1000,
-      );
-    } on Object catch (error) {
-      await widget.store.discardMedia(temp.relativePath);
-      _toast('保存录音失败：$error');
-    }
-    if (mounted) {
-      setState(() {
-        _recording = false;
-        _busy = false;
-        _elapsed = Duration.zero;
-        _level = 0;
-      });
-    } else {
-      _busy = false;
-    }
-  }
-
-  Future<void> _cleanupRecording() async {
-    final temp = _recordingTemp;
-    _recordingTemp = null;
-    if (temp != null) await widget.store.discardMedia(temp.relativePath);
-  }
-
-  void _onTextChanged() {
-    if (_swapping) return;
-    widget.drafts?.write(_notebookId, _controller.text);
-    final has = _controller.text.trim().isNotEmpty;
-    if (has != _hasText) setState(() => _hasText = has);
+    final message = await widget.session.start();
+    if (message != null) _toast(message);
   }
 
   Future<void> _send() async {
@@ -360,15 +201,11 @@ class _InputBarState extends State<InputBar> {
             .surfaceContainerHighest
             .withValues(alpha: 0.4),
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        child: _recording
-            ? _RecordingRow(
-                elapsed: _elapsed,
-                level: _level,
-                busy: _busy,
-                onDiscard: _discardRecording,
-                onSave: _stopAndSave,
-              )
-            : Row(
+        child: ListenableBuilder(
+          listenable: widget.session,
+          builder: (context, _) => widget.session.recording
+              ? RecordingRow(session: widget.session, onMessage: _toast)
+              : Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
@@ -376,81 +213,23 @@ class _InputBarState extends State<InputBar> {
                     tooltip: '拍照（后续版本）',
                     onPressed: null,
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.mic_none),
-                    tooltip: '录音',
-                    onPressed: widget.recorder == null || _busy
-                        ? null
-                        : _startRecording,
-                  ),
-                  Expanded(child: field),
-                  IconButton(
-                    icon: const Icon(Icons.send_outlined),
-                    tooltip: '发送',
-                    onPressed: _hasText && !_sending ? _send : null,
-                  ),
-                ],
-              ),
+                    IconButton(
+                      icon: const Icon(Icons.mic_none),
+                      tooltip: '录音',
+                      onPressed: !widget.session.available || widget.session.busy
+                          ? null
+                          : _startRecording,
+                    ),
+                    Expanded(child: field),
+                    IconButton(
+                      icon: const Icon(Icons.send_outlined),
+                      tooltip: '发送',
+                      onPressed: _hasText && !_sending ? _send : null,
+                    ),
+                  ],
+                ),
+        ),
       ),
-    );
-  }
-}
-
-/// 录音条（ui-design §5.2）：左 ✗ 丢弃 · 中 实时时长 + 真实电平 · 右 ✓ 停止并保存。
-class _RecordingRow extends StatelessWidget {
-  const _RecordingRow({
-    required this.elapsed,
-    required this.level,
-    required this.busy,
-    required this.onDiscard,
-    required this.onSave,
-  });
-
-  final Duration elapsed;
-  final double level;
-  final bool busy;
-  final VoidCallback onDiscard;
-  final VoidCallback onSave;
-
-  static String _mmss(Duration d) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: '丢弃',
-          onPressed: busy ? null : onDiscard,
-        ),
-        const SizedBox(width: 4),
-        Icon(Icons.circle, size: 10, color: colors.error),
-        const SizedBox(width: 8),
-        Text(
-          _mmss(elapsed),
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: SizedBox(
-            height: 6,
-            child: LinearProgressIndicator(
-              value: level.clamp(0.0, 1.0),
-              backgroundColor: colors.surfaceContainerHighest,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        IconButton(
-          icon: const Icon(Icons.check),
-          tooltip: '停止并保存',
-          onPressed: busy ? null : onSave,
-        ),
-      ],
     );
   }
 }

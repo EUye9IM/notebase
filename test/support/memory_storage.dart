@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:notebase/core/model.dart';
 import 'package:notebase/core/storage/storage.dart';
 
@@ -53,8 +55,12 @@ class MemoryStorage implements Storage {
     required String sourcePath,
     required String relativePath,
   }) async {
-    final bytes = media.remove(sourcePath) ?? 1; // 模拟移动
-    media[relativePath] = bytes;
+    // 与 JsonFileStorage 一致：源文件不存在要抛错，否则测试会放过
+    // 「临时文件根本没落盘」这类缺陷（M6 评审指出）。
+    if (!media.containsKey(sourcePath)) {
+      throw FileSystemException('源文件不存在', sourcePath);
+    }
+    media[relativePath] = media.remove(sourcePath)!;
   }
 
   @override

@@ -15,6 +15,7 @@ class FakeMediaRecorder implements MediaRecorder {
     this.stopDuration = const Duration(seconds: 3),
     this.levelValue = 0.5,
     this.throwOnLevel = false,
+    this.throwOnStart = false,
   });
 
   /// 非 null 表示不可用（缺二进制 / 无权限等），内容即原因。
@@ -22,6 +23,7 @@ class FakeMediaRecorder implements MediaRecorder {
   final Duration stopDuration;
   final double levelValue;
   final bool throwOnLevel;
+  final bool throwOnStart;
 
   final startedPaths = <String>[];
   bool discarded = false;
@@ -33,7 +35,10 @@ class FakeMediaRecorder implements MediaRecorder {
   Future<String?> unavailableReason() async => unavailable;
 
   @override
-  Future<void> start(String path) async => startedPaths.add(path);
+  Future<void> start(String path) async {
+    if (throwOnStart) throw StateError('后端起不来');
+    startedPaths.add(path);
+  }
 
   @override
   Future<Duration> stop() async {
@@ -153,6 +158,88 @@ void main() {
       expect(store.entries, isEmpty);
       expect(tempFiles(storage), isEmpty);
       expect(find.byType(TextField), findsOneWidget); // 回到输入栏
+    });
+  });
+
+  group('会话生命周期（P1-1 / P3-2 回归）', () {
+    // 录音状态原先放在 InputBar 的 State 里：拖动窗口跨 720 会销毁 State，
+    // 录音条消失、麦克风仍被占用、临时文件成孤儿、还能二次开录。
+    testWidgets('录音中跨 720 布局切换：录音条仍在、录音继续、不会二次开录', (tester) async {
+      final (store, storage) = await freshStore();
+      final recorder = FakeMediaRecorder();
+      await pumpApp(tester, store, recorder: recorder); // 默认 800x600 宽屏
+
+      await tester.tap(recordButton());
+      await tester.pumpAndSettle();
+      expect(saveButton(), findsOneWidget);
+
+      tester.view.physicalSize = const Size(400, 800); // 跨 720 → 窄屏分支
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+
+      expect(recorder.stopped, isFalse); // 录音没有被中断
+      expect(saveButton(), findsOneWidget); // 录音条仍在（会话跨重建存活）
+      expect(recordButton(), findsNothing); // 不会出现第二个 🎤
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('00:01'), findsOneWidget); // 计时仍在走
+
+      // 仍可正常收尾
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      expect(store.entries, hasLength(1));
+      expect(tempFiles(storage), isEmpty);
+    });
+
+    testWidgets('页面销毁时收尾：释放录音器并清掉临时文件', (tester) async {
+      final (store, storage) = await freshStore();
+      final recorder = FakeMediaRecorder();
+      await pumpApp(tester, store, recorder: recorder);
+
+      await tester.tap(recordButton());
+      await tester.pumpAndSettle();
+      expect(tempFiles(storage), hasLength(1));
+
+      await tester.pumpWidget(const SizedBox()); // 卸载整个应用
+      await tester.pumpAndSettle();
+
+      expect(recorder.stopped, isTrue); // 麦克风已释放
+      expect(tempFiles(storage), isEmpty); // 无孤儿临时文件
+    });
+
+    testWidgets('开始录音失败：不留孤儿临时文件', (tester) async {
+      final (store, storage) = await freshStore();
+      final recorder = FakeMediaRecorder(throwOnStart: true);
+      await pumpApp(tester, store, recorder: recorder);
+
+      await tester.tap(recordButton());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('无法开始录音'), findsOneWidget);
+      expect(tempFiles(storage), isEmpty);
+      expect(find.byType(TextField), findsOneWidget); // 未进入录音态
+    });
+
+    testWidgets('录音中切笔记本：条目落在开录时的笔记本（P3-2 回归）', (tester) async {
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      final other = await store.createNotebook('工作');
+      await store.switchNotebook(Notebook.defaultId);
+      final recorder = FakeMediaRecorder(
+        stopDuration: const Duration(seconds: 3),
+      );
+      await pumpApp(tester, store, recorder: recorder);
+
+      await tester.tap(recordButton());
+      await tester.pumpAndSettle();
+      await store.switchNotebook(other.id); // 录音中切走
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+
+      expect(await store.entryCountOf(Notebook.defaultId), 1); // 落在开录时的本
+      expect(await store.entryCountOf(other.id), 0);
     });
   });
 

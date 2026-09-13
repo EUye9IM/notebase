@@ -120,6 +120,100 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
   }
 }
 
+/// 通用单字段编辑弹层（转写 / 摘要，ui-design §8）：
+/// **保存空值 = 删除该字段**，保存即生效、无确认。
+Future<void> showFieldEditor(
+  BuildContext context, {
+  required String title,
+  required String? initial,
+  required String hint,
+  required Future<void> Function(String? value) onSave,
+}) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => FieldEditorSheet(
+        title: title,
+        initial: initial ?? '',
+        hint: hint,
+        onSave: onSave,
+      ),
+    );
+
+class FieldEditorSheet extends StatefulWidget {
+  const FieldEditorSheet({
+    super.key,
+    required this.title,
+    required this.initial,
+    required this.hint,
+    required this.onSave,
+  });
+
+  final String title;
+  final String initial;
+  final String hint;
+  final Future<void> Function(String? value) onSave;
+
+  @override
+  State<FieldEditorSheet> createState() => FieldEditorSheetState();
+}
+
+class FieldEditorSheetState extends State<FieldEditorSheet> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final text = _controller.text.trim();
+    await widget.onSave(text.isEmpty ? null : text); // 空 = 删除该字段
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(widget.title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 10,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: widget.hint,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('取消'),
+                ),
+                const Spacer(),
+                FilledButton(onPressed: _save, child: const Text('保存')),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 删除条目的确认弹窗（ui-design §8：破坏性操作才确认）。
 Future<bool?> showDeleteEntryDialog(BuildContext context) => showDialog<bool>(
       context: context,

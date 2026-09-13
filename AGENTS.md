@@ -5,10 +5,10 @@
 ## 项目是什么
 
 Notebase：本地优先的**快速笔记本**——打开即记，一条一档（文字 / 语音 / 拍照），
-按笔记本分组，完全离线。当前阶段只做**文本条目**闭环，Linux 桌面端先行。
+按笔记本分组，完全离线。文本闭环已完成；多媒体（录音 / 播放 / 图片导入）进行中，Linux 桌面端先行。
 
 - 交互规格（**唯一契约**）：`docs/ui-design.mdx`
-- 开发计划（里程碑 M1–M5，多媒体后置 M6）：`docs/dev-plan.md`
+- 开发计划（里程碑 M1–M5 + M6 多媒体分段）：`docs/dev-plan.md`
 - 进度与状态：`README.md`
 
 **设计文档是契约，不是参考。** 任何行为变更都要在同一次提交里更新 `ui-design.mdx`
@@ -46,7 +46,8 @@ git -c core.sshCommand="ssh -F /dev/null" push origin main
 lib/
 ├── core/    纯 Dart，零 Flutter 依赖：model / store / listenable / storage
 ├── ui/      Flutter：app / home / stream_view / input_bar / notebook_list /
-│            search_view / editor_sheet / settings_view / listenable_bridge
+│            search_view / editor_sheet / settings_view / listenable_bridge /
+│            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）
 └── main.dart  入口：注入应用目录 → 加载 AppStore → 启动
 ```
 
@@ -103,7 +104,9 @@ lib/
   只信缓存的滚动判定会让「回到最新」之类的按钮残留且点不掉。要在帧末重算或监听
   `ScrollMetricsNotification`（M5 评审 P2-1）。
 - **跨布局重建会重建 State**：宽/窄两套布局各自构造同一组件时，拖动窗口跨 720 会丢 State 内的
-  数据。需要存活的状态（如输入草稿）要上提到页面持有的对象里（`DraftStore`，M5 评审 P3-1）。
+  数据。需要存活的状态要上提到页面持有的对象里——输入草稿（`DraftStore`，M5 评审 P3-1）
+  与**录音会话**（`RecordingSession`，M6 评审 P1-1：放 State 里会导致录音条消失、麦克风仍占用、
+  临时文件成孤儿、还能二次开录）都是这条坑的实例。
 - **别用真实文件系统做 UI 测试**：用 `test/support/memory_storage.dart`
   （`MemoryStorage` / `SlowMemoryStorage`——后者模拟写延迟，用于发送重入类测试）。
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（已修）：
@@ -130,17 +133,23 @@ lib/
   AI 自动生成不得覆盖（Phase 3）。
 - 撤销回退目标：原笔记本已删除时落到**当前笔记本**（§8 有理由说明），
   与 §6「删除笔记本并入 default」是不同语义。
-- 未实装但字段已预留的（`photo`/`audio`/`transcript`/`summary`）不要删除；
-  M6 前 UI 不暴露媒体入口。
+- 媒体条目：录音=ogg/Opus（基础 GStreamer 可解码，aac 不行）；删除条目不删媒体文件
+  （撤销窗口内还要用），无主媒体清理见 `dev-plan §7`；长按菜单按类型给项
+  （录音=编辑转写/编辑摘要，照片=编辑摘要，文本=编辑）。
+- 未实装的 `photo` 渲染（缩略图/查看器）字段已预留，不要删除。
 
 ## 里程碑节奏
 
 按 `docs/dev-plan.md` 的 M1–M5 推进，一个里程碑一次提交；每个里程碑结束必须满足
 「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5，
-M5 评审修复记录见 §6），
-下一步是 M6 多媒体（录音 / 拍照 / 相册）。
+M5 评审修复记录见 §6），**M6 多媒体进行中**：M6a 核心媒体层 ✅ / M6b 录音 ✅ /
+M6c 播放与媒体渲染 ✅ / M6d 图片导入（下一步）/ M6e 转写摘要编辑 ✅（随 M6 评审提前落地）。
 
-**未完成 / 待观察项**（勿遗忘）：
+**未完成 / 待观察项**（勿遗忘，另有 `dev-plan §7`）：
+- **无主媒体清理**：删除条目不删媒体文件（撤销窗口内还要用），会留下不再被引用的
+  `media/*.ogg|png` 与异常退出的 `media/.tmp/*`
+- **真机手动核对**：应用内完整录音链路（点 🎤 → 说话 → ✓ → 条目 → 播放）尚未手点过，
+  插件层已由 M6 spike 验证
 - 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）

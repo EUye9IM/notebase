@@ -6,6 +6,7 @@ import 'package:notebase/core/model.dart';
 import 'package:notebase/core/store.dart';
 import 'package:notebase/ui/app.dart';
 import 'package:notebase/ui/media_player.dart';
+import 'package:notebase/ui/stream_view.dart';
 
 import '../support/memory_storage.dart';
 
@@ -13,6 +14,9 @@ import '../support/memory_storage.dart';
 /// 摘要/转写兜底渲染。
 class FakeMediaPlayer implements MediaPlayer {
   final playedPaths = <String>[];
+
+  /// 非 null 时 play() 会挂起，用于制造并发窗口。
+  Completer<void>? playGate;
   final _complete = StreamController<void>.broadcast();
   int pauseCount = 0;
   int resumeCount = 0;
@@ -23,7 +27,10 @@ class FakeMediaPlayer implements MediaPlayer {
   void complete() => _complete.add(null);
 
   @override
-  Future<void> play(String absolutePath) async => playedPaths.add(absolutePath);
+  Future<void> play(String absolutePath) async {
+    playedPaths.add(absolutePath);
+    if (playGate != null) await playGate!.future;
+  }
 
   @override
   Future<void> pause() async => pauseCount++;
@@ -179,7 +186,61 @@ void main() {
         find.byType(LinearProgressIndicator),
       );
       expect(bar.value, closeTo(0.5, 0.01)); // 5s / 10s
-      expect(entry.duration, 10);
+      expect(entry.type, EntryType.audio); // 顺带确认播放的是媒体条目
+    });
+
+    // P2-2 回归：两次点击都发生在第一次 play 尚未返回的窗口内时，
+    // 「同一时刻只播一条」与「播放态标对行」都必须成立。
+    testWidgets('并发点两条：底层操作串行、最终只播最后点击的那条、标对行', (tester) async {
+      final first = await addAudio(summary: '第一条');
+      final second = await addAudio(summary: '第二条');
+      final player = FakeMediaPlayer()..playGate = Completer<void>();
+      await pumpApp(tester, player: player);
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled).first);
+      await tester.pump(); // 不 settle：第一次 play 悬在窗口里
+      await tester.tap(find.byIcon(Icons.play_circle_filled).first);
+      await tester.pump();
+
+      // 串行化：第一次 play 未返回前，第二次 play 不得下发
+      // （修复前这里是并发两次 play、且谁都没被 stop）
+      expect(player.playedPaths, hasLength(1));
+      expect(player.playedPaths.single, '/memory/${first.file}');
+
+      player.playGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(player.playedPaths.last, '/memory/${second.file}'); // 最后播的是后点的
+      expect(player.stopCount, greaterThanOrEqualTo(1)); // 且中途停过一次
+      final playingRow = find.ancestor(
+        of: find.byIcon(Icons.pause_circle_filled),
+        matching: find.byType(EntryTile),
+      );
+      expect(
+        find.descendant(of: playingRow, matching: find.text('第二条')),
+        findsOneWidget, // 播放态落在最后点击的那条，不被返回顺序左右
+      );
+    });
+
+    // P3-1 回归：删除正在播放的条目要停播，否则进度定时器空转。
+    testWidgets('删除正在播放的条目：停止播放并复位', (tester) async {
+      await addAudio(summary: '要删的');
+      final player = FakeMediaPlayer();
+      await pumpApp(tester, player: player);
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.pause_circle_filled), findsOneWidget);
+
+      await tester.longPress(find.text('要删的'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+
+      expect(player.stopCount, greaterThanOrEqualTo(1));
+      expect(find.byIcon(Icons.pause_circle_filled), findsNothing);
     });
 
     testWidgets('未注入播放能力：行仍渲染但不可播放，点击不抛错', (tester) async {

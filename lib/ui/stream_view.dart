@@ -188,15 +188,24 @@ class _DayHeader extends StatelessWidget {
   }
 }
 
-enum EntryAction { copy, edit, delete }
+enum EntryAction { copy, editText, editTranscript, editSummary, delete }
 
-/// 条目操作菜单（长按 / 右键的位置菜单，ui-design §8）。
-/// [canCopy] 为 false（无可复制文本，如尚无转写/摘要的媒体条目）时不显示「复制」。
+String _actionLabel(EntryAction action) => switch (action) {
+      EntryAction.copy => '复制',
+      EntryAction.editText => '编辑',
+      EntryAction.editTranscript => '编辑转写',
+      EntryAction.editSummary => '编辑摘要',
+      EntryAction.delete => '删除',
+    };
+
+/// 条目操作菜单（长按 / 右键的位置菜单）：**按类型给不同项**（ui-design §8）
+/// —— 文本=复制/编辑/删除；录音=复制/编辑转写/编辑摘要/删除；
+/// 照片=复制/编辑摘要/删除。
 Future<EntryAction?> showEntryMenu(
   BuildContext context,
-  Offset position, {
-  bool canCopy = true,
-}) {
+  Offset position,
+  List<EntryAction> actions,
+) {
   final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   return showMenu<EntryAction>(
     context: context,
@@ -205,10 +214,8 @@ Future<EntryAction?> showEntryMenu(
       Offset.zero & (overlay?.size ?? Size.zero),
     ),
     items: [
-      if (canCopy)
-        const PopupMenuItem(value: EntryAction.copy, child: Text('复制')),
-      const PopupMenuItem(value: EntryAction.edit, child: Text('编辑')),
-      const PopupMenuItem(value: EntryAction.delete, child: Text('删除')),
+      for (final action in actions)
+        PopupMenuItem(value: action, child: Text(_actionLabel(action))),
     ],
   );
 }
@@ -235,20 +242,60 @@ class EntryTile extends StatelessWidget {
   String get _copyableText =>
       entry.text ?? entry.transcript ?? entry.summary ?? '';
 
+  /// §8 的菜单项：按类型给不同动作。
+  List<EntryAction> get _menuActions => [
+        if (_copyableText.isNotEmpty) EntryAction.copy,
+        ...switch (entry.type) {
+          EntryType.text => const [EntryAction.editText],
+          EntryType.audio => const [
+              EntryAction.editTranscript,
+              EntryAction.editSummary,
+            ],
+          EntryType.photo => const [EntryAction.editSummary],
+        },
+        EntryAction.delete,
+      ];
+
   Future<void> _showMenu(BuildContext context, Offset position) async {
-    final action = await showEntryMenu(
-      context,
-      position,
-      canCopy: _copyableText.isNotEmpty,
-    );
+    final action = await showEntryMenu(context, position, _menuActions);
     if (action == null || !context.mounted) return;
     switch (action) {
       case EntryAction.copy:
         await _copy(context);
-      case EntryAction.edit:
+      case EntryAction.editText:
         await showEntryEditor(context, store, entry);
+      case EntryAction.editTranscript:
+        await _editTranscript(context);
+      case EntryAction.editSummary:
+        await _editSummary(context);
       case EntryAction.delete:
         await _delete(context);
+    }
+  }
+
+  Future<void> _editTranscript(BuildContext context) => showFieldEditor(
+        context,
+        title: '编辑转写',
+        initial: entry.transcript,
+        hint: '录音的完整文字（留空即删除）',
+        onSave: (value) => store.updateEntryTranscript(entry.id, value),
+      );
+
+  Future<void> _editSummary(BuildContext context) => showFieldEditor(
+        context,
+        title: '编辑摘要',
+        initial: entry.summary,
+        hint: '这条记录的一句话摘要（留空即删除）',
+        onSave: (value) => store.updateEntrySummary(entry.id, value),
+      );
+
+  /// 摘要位点按即编辑（§8）：显示什么就编辑什么——摘要优先，兜底的转写首行编辑转写。
+  Future<void> _editCaption(BuildContext context) async {
+    final hasSummary = (entry.summary?.trim().isNotEmpty ?? false);
+    if (hasSummary || entry.type == EntryType.photo) {
+      await _editSummary(context);
+    } else {
+      await _editTranscript(context);
     }
   }
 
@@ -290,6 +337,8 @@ class EntryTile extends StatelessWidget {
     final confirmed = await showDeleteEntryDialog(context);
     if (confirmed != true || !context.mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    // 正在播放的条目被删：先停播，避免进度定时器空转（M6 评审 P3-1）
+    await PlaybackScope.read(context)?.stopIfPlaying(entry.id);
     final removed = await store.deleteEntry(entry.id);
     if (!context.mounted) return;
     messenger.showSnackBar(undoSnackBar(store, removed));
@@ -320,10 +369,14 @@ class EntryTile extends StatelessWidget {
             },
             if (caption != null) ...[
               const SizedBox(height: 4),
-              Text(
-                caption,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              GestureDetector(
+                // §8：摘要位显示的文本点按即编辑（显示什么就编辑什么）
+                onTap: () => _editCaption(context),
+                child: Text(
+                  caption,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],

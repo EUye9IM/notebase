@@ -181,9 +181,16 @@ class AppStore extends CoreChangeNotifier {
     required String sourceRelativePath,
     required String extension,
     double? duration,
+    String? notebookId,
   }) async {
     if (type == EntryType.text) {
       throw ArgumentError('文本条目请用 addText');
+    }
+    // 归属按「开始录制时的笔记本」：录音期间切本不应把内容记到别处
+    // （M6 评审 P3-2，与 §10「不会把 A 里写的内容误发进 B」同理）。
+    final targetId = notebookId ?? _currentId;
+    if (!_notebooks.any((n) => n.id == targetId)) {
+      throw ArgumentError('笔记本不存在: $targetId');
     }
     final id = _uid();
     final relativePath = mediaPathFor(id, extension);
@@ -193,16 +200,16 @@ class AppStore extends CoreChangeNotifier {
     );
     final entry = Entry(
       id: id,
-      notebookId: _currentId,
+      notebookId: targetId,
       type: type,
       file: relativePath,
       duration: duration,
       createdAt: DateTime.now(),
     );
-    final list = _entries.putIfAbsent(_currentId, () => []);
+    final list = _entries.putIfAbsent(targetId, () => []);
     list.add(entry);
     _sort(list);
-    await _storage.saveEntries(_currentId, list);
+    await _storage.saveEntries(targetId, list);
     notifyListeners();
     return entry;
   }

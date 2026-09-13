@@ -57,6 +57,12 @@ class AudioPlayersMediaPlayer implements MediaPlayer {
 }
 
 /// 内联播放编排（ui-design §4 / §8）：同一时刻只播一条，位置用于进度条。
+///
+/// 并发正确性（M6 评审 P2-2）：
+/// - **意图同步落地**：点击后立刻更新 `playingId`/`playing`，所以「最后一次点击」
+///   决定哪一行显示播放态，不会被底层 await 的返回顺序左右；
+/// - **底层操作串行化**：播放器只有一个，所有 play/pause/stop 走同一条队列，
+///   避免并发下两次 play 同时下发、谁都没被 stop。
 class PlaybackController extends ChangeNotifier {
   PlaybackController({
     required this.player,
@@ -74,9 +80,14 @@ class PlaybackController extends ChangeNotifier {
 
   String? _playingId;
   bool _playing = false;
+
+  /// 底层播放器是否已装载当前条目（暂停后可 resume，不必重头播）。
+  bool _loaded = false;
+
   Duration _position = Duration.zero;
   Timer? _ticker;
   StreamSubscription<void>? _completeSub;
+  Future<void> _queue = Future<void>.value();
 
   /// 正在播放的条目 id（暂停时仍指向该条目）。
   String? get playingId => _playingId;
@@ -96,53 +107,88 @@ class PlaybackController extends ChangeNotifier {
   }
 
   /// ▶ / ⏸：同一条切换播放暂停，另一条则切换过去。
-  Future<void> toggle(Entry entry) async {
+  Future<void> toggle(Entry entry) {
     if (_playingId == entry.id) {
-      if (_playing) {
-        await player.pause();
-        _playing = false;
-        _stopTicker();
-      } else {
-        await player.resume();
-        _playing = true;
-        _startTicker();
-      }
-      notifyListeners();
-      return;
-    }
-    await _stopCurrent();
-    try {
-      final path = await resolvePath(entry);
-      await player.play(path);
+      _playing = !_playing;
+    } else {
       _playingId = entry.id;
       _playing = true;
+      _loaded = false;
       _position = Duration.zero;
-      _completeSub ??= player.onComplete.listen((_) => _handleComplete());
+    }
+    _completeSub ??= player.onComplete.listen((_) => _handleComplete());
+    if (_playing) {
       _startTicker();
-    } on Object {
-      // 播放失败（文件丢失 / 缺解码器）：复位为未播放，UI 表现为点不动。
-      _playingId = null;
-      _playing = false;
+    } else {
+      _stopTicker();
     }
     notifyListeners();
+    return _enqueue(() => _apply(entry));
   }
 
-  Future<void> _stopCurrent() async {
-    if (_playingId == null) return;
-    _stopTicker();
-    try {
-      await player.stop();
-    } on Object {
-      // 忽略：底层可能已自然结束
+  Future<void> _apply(Entry entry) async {
+    if (_playingId != entry.id) return; // 期间已被别的条目接管
+    if (!_playing) {
+      try {
+        await player.pause();
+      } on Object {
+        // 播放器可能已自然结束
+      }
+      return;
     }
+    try {
+      if (_loaded) {
+        await player.resume();
+        return;
+      }
+      final path = await resolvePath(entry);
+      if (_playingId != entry.id) return; // 解析路径期间被接管
+      await player.stop(); // 单播放器：先停再播，保证同时只播一条
+      await player.play(path);
+      if (_playingId != entry.id) return;
+      _loaded = true;
+    } on Object {
+      // 播放失败（文件缺失 / 缺解码器）：复位为未播放，UI 表现为点不动
+      if (_playingId == entry.id) {
+        _playingId = null;
+        _playing = false;
+        _loaded = false;
+        _position = Duration.zero;
+        _stopTicker();
+        notifyListeners();
+      }
+    }
+  }
+
+  /// 条目被删除/移除时停止播放并复位，避免进度定时器空转（评审 P3-1）。
+  Future<void> stopIfPlaying(String entryId) {
+    if (_playingId != entryId) return Future<void>.value();
     _playingId = null;
     _playing = false;
+    _loaded = false;
     _position = Duration.zero;
+    _stopTicker();
+    notifyListeners();
+    return _enqueue(() async {
+      try {
+        await player.stop();
+      } on Object {
+        // 忽略
+      }
+    });
+  }
+
+  /// 串行化底层播放器操作（沿用存储写队列的思路）。
+  Future<void> _enqueue(Future<void> Function() operation) {
+    final op = _queue.catchError((_) {}).then((_) => operation());
+    _queue = op;
+    return op;
   }
 
   void _handleComplete() {
     _playingId = null;
     _playing = false;
+    _loaded = false;
     _position = Duration.zero;
     _stopTicker();
     notifyListeners();

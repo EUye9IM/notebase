@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/store.dart';
 import 'input_bar.dart';
 import 'media_recorder.dart';
 import 'notebook_list.dart';
+import 'recording_session.dart';
 import 'search_view.dart';
 import 'settings_view.dart';
 import 'startup_views.dart';
@@ -45,6 +48,10 @@ class _HomePageState extends State<HomePage> {
   /// 草稿放 State 里会在拖动窗口跨 720 时丢失（§10 / M5 评审 P3-1）。
   final _drafts = DraftStore();
 
+  /// 录音会话由页面持有：实现是「InputBar 的 State 在宽窄布局切换时被销毁」
+  /// 这条坑的根治（M6 评审 P1-1）——录音中拖窗口不再丢录音条、不再占用麦克风。
+  late final RecordingSession _recording;
+
   bool _searching = false;
   bool _noticeDismissed = false;
 
@@ -52,7 +59,18 @@ class _HomePageState extends State<HomePage> {
   bool _wide = true;
 
   @override
+  void initState() {
+    super.initState();
+    _recording = RecordingSession(
+      store: widget.store,
+      recorder: widget.recorder,
+    );
+  }
+
+  @override
   void dispose() {
+    // 收尾：释放麦克风、清掉临时文件；已录够 1s 的内容尽力保住。
+    unawaited(_recording.shutdown());
     _searchController.dispose();
     _searchFocus.dispose();
     _inputFocus.dispose();
@@ -158,7 +176,7 @@ class _HomePageState extends State<HomePage> {
                       wide: true,
                       focusNode: _inputFocus,
                       drafts: _drafts,
-                      recorder: widget.recorder,
+                      session: _recording,
                     ),
                   ]),
                 ),
@@ -234,7 +252,7 @@ class _HomePageState extends State<HomePage> {
             store: widget.store,
             wide: false,
             drafts: _drafts,
-            recorder: widget.recorder,
+            session: _recording,
           ),
         ]),
       );
