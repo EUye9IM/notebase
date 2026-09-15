@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'core/startup.dart';
 import 'core/storage/json_storage.dart';
 import 'ui/app.dart';
+import 'ui/media_importer.dart';
 import 'ui/media_player.dart';
 import 'ui/media_recorder.dart';
 import 'ui/startup_views.dart';
@@ -30,5 +31,6 @@ Future<void> main() async {
     startupNotice: startupNoticeText(result),
     recorder: RecordMediaRecorder(),
     player: AudioPlayersMediaPlayer(),
+    importer: const FileSelectorMediaImporter(),
   ));
 }

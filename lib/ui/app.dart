@@ -4,6 +4,7 @@ import '../core/model.dart';
 import '../core/store.dart';
 import 'home.dart';
 import 'listenable_bridge.dart';
+import 'media_importer.dart';
 import 'media_player.dart';
 import 'media_recorder.dart';
 
@@ -15,6 +16,7 @@ class NotebaseApp extends StatefulWidget {
     this.startupNotice,
     this.recorder,
     this.player,
+    this.importer,
   });
 
   final AppStore store;
@@ -24,6 +26,9 @@ class NotebaseApp extends StatefulWidget {
 
   /// 播放能力（§4/§8）。为 null 时媒体条目不可播放。
   final MediaPlayer? player;
+
+  /// 图片导入能力（§5.3）。为 null 时 📷 置灰。
+  final MediaImporter? importer;
 
   /// 启动期数据损坏等需要告知用户的信息（ui-design §10），可关闭。
   final String? startupNotice;
@@ -85,6 +90,7 @@ class _NotebaseAppState extends State<NotebaseApp> {
             store: widget.store,
             startupNotice: widget.startupNotice,
             recorder: widget.recorder,
+            importer: widget.importer,
           ),
         ),
       ),

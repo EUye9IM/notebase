@@ -51,6 +51,20 @@ class MemoryStorage implements Storage {
   }
 
   @override
+  String mediaPath(String relativePath) => '/memory/$relativePath';
+
+  @override
+  Future<void> copyIntoMedia({
+    required String sourceAbsolutePath,
+    required String relativePath,
+  }) async {
+    if (!File(sourceAbsolutePath).existsSync()) {
+      throw FileSystemException('源文件不存在', sourceAbsolutePath);
+    }
+    media[relativePath] = File(sourceAbsolutePath).lengthSync(); // 只复制
+  }
+
+  @override
   Future<void> adoptMedia({
     required String sourcePath,
     required String relativePath,

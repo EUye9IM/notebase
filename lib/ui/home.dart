@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/store.dart';
 import 'input_bar.dart';
+import 'media_importer.dart';
 import 'media_recorder.dart';
 import 'notebook_list.dart';
 import 'recording_session.dart';
@@ -25,12 +26,16 @@ class HomePage extends StatefulWidget {
     required this.store,
     this.startupNotice,
     this.recorder,
+    this.importer,
   });
 
   final AppStore store;
 
   /// 录音能力，透传给输入栏（§5.2）。
   final MediaRecorder? recorder;
+
+  /// 图片导入能力，透传给输入栏（§5.3）。
+  final MediaImporter? importer;
 
   /// 启动期提示（数据损坏等），显示为可关闭的提示条（ui-design §10）。
   final String? startupNotice;
@@ -177,6 +182,7 @@ class _HomePageState extends State<HomePage> {
                       focusNode: _inputFocus,
                       drafts: _drafts,
                       session: _recording,
+                      importer: widget.importer,
                     ),
                   ]),
                 ),
@@ -253,6 +259,7 @@ class _HomePageState extends State<HomePage> {
             wide: false,
             drafts: _drafts,
             session: _recording,
+            importer: widget.importer,
           ),
         ]),
       );

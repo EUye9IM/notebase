@@ -5,7 +5,7 @@
 ## 项目是什么
 
 Notebase：本地优先的**快速笔记本**——打开即记，一条一档（文字 / 语音 / 拍照），
-按笔记本分组，完全离线。文本闭环已完成；多媒体（录音 / 播放 / 图片导入）进行中，Linux 桌面端先行。
+按笔记本分组，完全离线。文本闭环与多媒体（录音 / 播放 / 图片导入）均已完成，Linux 桌面端先行。
 
 - 交互规格（**唯一契约**）：`docs/ui-design.mdx`
 - 开发计划（里程碑 M1–M5 + M6 多媒体分段）：`docs/dev-plan.md`
@@ -47,7 +47,8 @@ lib/
 ├── core/    纯 Dart，零 Flutter 依赖：model / store / listenable / storage
 ├── ui/      Flutter：app / home / stream_view / input_bar / notebook_list /
 │            search_view / editor_sheet / settings_view / listenable_bridge /
-│            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）
+│            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）/
+│            media_importer（选图抽象）/ photo_view（缩略图与查看器）
 └── main.dart  入口：注入应用目录 → 加载 AppStore → 启动
 ```
 
@@ -136,14 +137,16 @@ lib/
 - 媒体条目：录音=ogg/Opus（基础 GStreamer 可解码，aac 不行）；删除条目不删媒体文件
   （撤销窗口内还要用），无主媒体清理见 `dev-plan §7`；长按菜单按类型给项
   （录音=编辑转写/编辑摘要，照片=编辑摘要，文本=编辑）。
-- 未实装的 `photo` 渲染（缩略图/查看器）字段已预留，不要删除。
+- 照片渲染：缩略图先做**同步存在性检查**再决定是否发起解码（缺失即占位「图片已丢失」，
+  §10）；点击进全屏查看器，点空白关闭。导入用 `file_selector`，**只复制不移动**用户原图。
 
 ## 里程碑节奏
 
 按 `docs/dev-plan.md` 的 M1–M5 推进，一个里程碑一次提交；每个里程碑结束必须满足
 「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5，
 M5 评审修复记录见 §6），**M6 多媒体进行中**：M6a 核心媒体层 ✅ / M6b 录音 ✅ /
-M6c 播放与媒体渲染 ✅ / M6d 图片导入（下一步）/ M6e 转写摘要编辑 ✅（随 M6 评审提前落地）。
+M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅ ——
+**M6 多媒体全段已完成**，剩下的是 dev-plan §7 的收尾项（无主媒体清理、真机手动核对）。
 
 **未完成 / 待观察项**（勿遗忘，另有 `dev-plan §7`）：
 - **无主媒体清理**：删除条目不删媒体文件（撤销窗口内还要用），会留下不再被引用的

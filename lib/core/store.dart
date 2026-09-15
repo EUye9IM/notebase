@@ -218,6 +218,42 @@ class AppStore extends CoreChangeNotifier {
   Future<String> mediaAbsolutePath(String relativePath) =>
       _storage.prepareMediaPath(relativePath);
 
+  /// 导入外部图片为照片条目（ui-design §5.3，Linux 端落地方式）。
+  ///
+  /// **只复制不移动**：用户选中的原图留在原处。一次一张（一图一条）。
+  Future<Entry> importPhoto({
+    required String sourceAbsolutePath,
+    required String extension,
+    String? notebookId,
+  }) async {
+    final targetId = notebookId ?? _currentId;
+    if (!_notebooks.any((n) => n.id == targetId)) {
+      throw ArgumentError('笔记本不存在: $targetId');
+    }
+    final id = _uid();
+    final relativePath = mediaPathFor(id, extension);
+    await _storage.copyIntoMedia(
+      sourceAbsolutePath: sourceAbsolutePath,
+      relativePath: relativePath,
+    );
+    final entry = Entry(
+      id: id,
+      notebookId: targetId,
+      type: EntryType.photo,
+      file: relativePath,
+      createdAt: DateTime.now(),
+    );
+    final list = _entries.putIfAbsent(targetId, () => []);
+    list.add(entry);
+    _sort(list);
+    await _storage.saveEntries(targetId, list);
+    notifyListeners();
+    return entry;
+  }
+
+  /// 媒体文件的绝对路径（同步、不建目录）：供缩略图等渲染路径使用。
+  String mediaPath(String relativePath) => _storage.mediaPath(relativePath);
+
   /// 丢弃尚未登记的媒体文件（录音点 ✗、时长过短，ui-design §5.2）。
   Future<void> discardMedia(String relativePath) =>
       _storage.deleteMedia(relativePath);

@@ -5,6 +5,7 @@ import '../core/model.dart';
 import '../core/store.dart';
 import 'editor_sheet.dart';
 import 'media_player.dart';
+import 'photo_view.dart';
 
 /// 时间流（ui-design §4）：时间升序、最新在底、按天分组（今天 / 昨天 /
 /// M月d日，跨年带年份）；打开、发送、切换笔记本后自动滚到底部。
@@ -318,8 +319,9 @@ class EntryTile extends StatelessWidget {
         // §8：音频条目的点按 = 列表内联播放/暂停
         PlaybackScope.read(context)?.toggle(entry);
       case EntryType.photo:
-        // M6d：全屏查看器
-        break;
+        final file = entry.file;
+        if (file != null) showPhotoViewer(context, store.mediaPath(file));
+
     }
   }
 
@@ -365,7 +367,7 @@ class EntryTile extends StatelessWidget {
                   style: theme.textTheme.bodyLarge,
                 ),
               EntryType.audio => _AudioRow(entry: entry),
-              EntryType.photo => _PhotoPlaceholder(entry: entry),
+              EntryType.photo => _PhotoRow(store: store, entry: entry),
             },
             if (caption != null) ...[
               const SizedBox(height: 4),
@@ -464,19 +466,24 @@ class _AudioRow extends StatelessWidget {
   }
 }
 
-/// 照片行占位：M6d 换成等比缩略图 + 全屏查看器。
-class _PhotoPlaceholder extends StatelessWidget {
-  const _PhotoPlaceholder({required this.entry});
+/// 照片行（ui-design §4）：等比缩略图（约列宽 60%），点按进全屏查看器（§8）。
+class _PhotoRow extends StatelessWidget {
+  const _PhotoRow({required this.store, required this.entry});
 
+  final AppStore store;
   final Entry entry;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Row(children: [
-      Icon(Icons.image_outlined, size: 32, color: colors.outline),
-      const SizedBox(width: 8),
-      Text('图片', style: Theme.of(context).textTheme.labelMedium),
-    ]);
+    final file = entry.file;
+    if (file == null) {
+      return Row(children: [
+        Icon(Icons.image_not_supported_outlined,
+            size: 32, color: Theme.of(context).colorScheme.outline),
+        const SizedBox(width: 8),
+        Text('图片已丢失', style: Theme.of(context).textTheme.labelMedium),
+      ]);
+    }
+    return PhotoThumbnail(path: store.mediaPath(file));
   }
 }

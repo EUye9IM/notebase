@@ -95,7 +95,7 @@ lib/
 
 | 项 | 说明 |
 |---|---|
-| M6 多媒体 | **分段进行中**：M6a 核心媒体层 ✅ / M6b 录音 UI ✅ / M6c 播放与媒体渲染 ✅ / M6d 图片导入 / M6e 转写摘要编辑（§8 菜单部分已随 M6 评审修复提前落地 ✅）。原计划：录音（`record`，Linux 实现已存在）、播放（`audioplayers`）、拍照与相册导入（`image_picker` Linux 桌面支持有限，届时评估 `file_picker` 替代）；媒体文件管理；转写/摘要手动编辑入口 |
+| M6 多媒体 | **分段进行中**：M6a 核心媒体层 ✅ / M6b 录音 UI ✅ / M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅。原计划：录音（`record`，Linux 实现已存在）、播放（`audioplayers`）、拍照与相册导入（`image_picker` Linux 桌面支持有限，届时评估 `file_picker` 替代）；媒体文件管理；转写/摘要手动编辑入口 |
 | M7 SQLite | `sqflite` + `sqflite_common_ffi`，`Storage` 换实现；FTS5 |
 | M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建 |
 | M9 AI | Phase 3：自动转写→摘要、图片描述、语义搜索；接入点已在模型与 UI 预留 |
@@ -128,7 +128,8 @@ lib/
 | 删除一条记录 | 3 | `test/ui/search_test.dart`「长按 → 删除 → 确认（3 步），并可用 5s 撤销找回」 |
 | 录一段音 | 2 | `test/ui/recording_test.dart`「点 🎤 进入录音态」「✓ 停止即保存」（1 步开录 + 1 步停止） |
 | 查看/补录转写或摘要 | 2 + 输入 | `test/ui/media_menu_test.dart`（长按 → 菜单项 → 输入） |
-| 拍一张照 / 相册导入 | — | M6d 未实装，N/A |
+| 相册导入一张 | 2–3 | `test/ui/photo_test.dart`（点 📷 → 选图 → 入流；Linux 走文件对话框） |
+| 拍一张照（应用内取景器） | — | Linux 无 camera 插件支持，随 Android（M8），N/A |
 
 工程门禁（M5 实测）：
 
@@ -163,5 +164,5 @@ P3-4（弱断言）同批处理：窄屏录入用例改走真实键盘路径并�
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`。
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）。
 - 输入栏草稿仅内存（重启即失），如需持久化再定。
-- **真机手动核对**：应用内完整录音链路（点 🎤 → 说话 → ✓ → 列表出现条目 → 播放）
-  尚未在真机手点过；插件层已由 M6 spike 验证。
+- **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
+  插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。

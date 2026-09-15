@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/store.dart';
+import 'media_importer.dart';
 import 'recording_session.dart';
 
 /// 常驻输入栏（ui-design §5.1）：
@@ -37,6 +38,7 @@ class InputBar extends StatefulWidget {
     this.focusNode,
     this.drafts,
     required this.session,
+    this.importer,
   });
 
   final AppStore store;
@@ -51,6 +53,9 @@ class InputBar extends StatefulWidget {
   /// 录音会话（§5.2）。由 HomePage 持有，跨布局重建存活；无录音能力时
   /// `session.available` 为 false，🎤 置灰。
   final RecordingSession session;
+
+  /// 图片导入能力（§5.3）。为 null 时 📷 置灰。
+  final MediaImporter? importer;
 
   @override
   State<InputBar> createState() => _InputBarState();
@@ -74,6 +79,8 @@ class _InputBarState extends State<InputBar> {
 
   /// 录音会话的异步提示（中断保存等）。
   StreamSubscription<String>? _messages;
+
+  bool _importing = false;
 
   @override
   void initState() {
@@ -121,6 +128,30 @@ class _InputBarState extends State<InputBar> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
+  }
+
+  /// 图片导入（§5.3）：点 📷 → 选图 → 保存并关闭 → 流内立即可见。
+  /// 无预览确认步骤；一次一张；只复制不移动用户原图。
+  Future<void> _importPhoto() async {
+    final importer = widget.importer;
+    if (importer == null || _importing) return;
+    setState(() => _importing = true);
+    try {
+      final source = await importer.pickImage();
+      if (source == null || !mounted) return; // 用户取消
+      await widget.store.importPhoto(
+        sourceAbsolutePath: source,
+        extension: imageExtensionOf(source),
+      );
+    } on Object catch (error) {
+      _toast('导入图片失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() => _importing = false);
+      } else {
+        _importing = false;
+      }
+    }
   }
 
   Future<void> _startRecording() async {
@@ -179,7 +210,8 @@ class _InputBarState extends State<InputBar> {
     if (widget.wide) {
       field = Focus(
         onKeyEvent: (node, event) {
-          final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+          final isEnter =
+              event.logicalKey == LogicalKeyboardKey.enter ||
               event.logicalKey == LogicalKeyboardKey.numpadEnter;
           if (event is KeyDownEvent &&
               isEnter &&
@@ -196,9 +228,7 @@ class _InputBarState extends State<InputBar> {
     return SafeArea(
       top: false,
       child: Container(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
             .withValues(alpha: 0.4),
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         child: ListenableBuilder(
@@ -206,17 +236,20 @@ class _InputBarState extends State<InputBar> {
           builder: (context, _) => widget.session.recording
               ? RecordingRow(session: widget.session, onMessage: _toast)
               : Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.photo_outlined),
-                    tooltip: '拍照（后续版本）',
-                    onPressed: null,
-                  ),
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.photo_outlined),
+                      tooltip: '导入图片',
+                      onPressed: widget.importer == null || _importing
+                          ? null
+                          : _importPhoto,
+                    ),
                     IconButton(
                       icon: const Icon(Icons.mic_none),
                       tooltip: '录音',
-                      onPressed: !widget.session.available || widget.session.busy
+                      onPressed:
+                          !widget.session.available || widget.session.busy
                           ? null
                           : _startRecording,
                     ),

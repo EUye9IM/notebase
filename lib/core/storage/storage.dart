@@ -18,6 +18,17 @@ abstract class Storage {
   /// 内容，只提供落点——录音/导入由 UI 层的平台能力完成。
   Future<String> prepareMediaPath(String relativePath);
 
+  /// 媒体文件的绝对路径（**同步**、不创建目录）：供渲染缩略图等同步取用。
+  String mediaPath(String relativePath);
+
+  /// 把**外部**文件复制进媒体目录（导入用户图片用）。
+  ///
+  /// 只复制、绝不移动：用户的原图必须留在原处（与 [adoptMedia] 的区别）。
+  Future<void> copyIntoMedia({
+    required String sourceAbsolutePath,
+    required String relativePath,
+  });
+
   /// 把已落盘的临时媒体移动到正式位置（`media/<entry-id>.<ext>`）。
   Future<void> adoptMedia({
     required String sourcePath,

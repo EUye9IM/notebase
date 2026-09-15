@@ -154,6 +154,59 @@ void main() {
       expect(File(finalPath).existsSync(), isTrue);
     });
 
+    test('importPhoto 只复制不移动：用户原图留在原处，字节一致', () async {
+      final store = await AppStore.load(storage);
+      final picked = File('${dir.path}/Pictures/IMG_0001.JPG');
+      await picked.parent.create(recursive: true);
+      await picked.writeAsBytes([9, 8, 7, 6, 5]);
+
+      final entry = await store.importPhoto(
+        sourceAbsolutePath: picked.path,
+        extension: 'jpg',
+      );
+
+      expect(entry.type, EntryType.photo);
+      expect(entry.file, 'media/${entry.id}.jpg'); // 扩展名小写、命名=条目 id
+      expect(picked.existsSync(), isTrue); // 原图未被搬走
+      expect(File('${dir.path}/${entry.file}').readAsBytesSync(), [9, 8, 7, 6, 5]);
+    });
+
+    test('importPhoto 可指定归属；源文件不存在则抛错', () async {
+      final store = await AppStore.load(storage);
+      final work = await store.createNotebook('工作');
+      final picked = File('${dir.path}/p.png');
+      await picked.writeAsBytes([1]);
+
+      final entry = await store.importPhoto(
+        sourceAbsolutePath: picked.path,
+        extension: 'png',
+        notebookId: work.id,
+      );
+      expect(entry.notebookId, work.id);
+      expect(await store.entryCountOf(work.id), 1);
+
+      await expectLater(
+        store.importPhoto(
+          sourceAbsolutePath: '${dir.path}/不存在.png',
+          extension: 'png',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+
+    test('导入的照片可被摘要搜索命中（§7 终态规则）', () async {
+      final store = await AppStore.load(storage);
+      final picked = File('${dir.path}/tile.png');
+      await picked.writeAsBytes([1]);
+      final entry = await store.importPhoto(
+        sourceAbsolutePath: picked.path,
+        extension: 'png',
+      );
+      await store.updateEntrySummary(entry.id, '瓷砖型号');
+
+      expect(store.search('瓷砖').single.id, entry.id);
+    });
+
     test('discardMedia 删除未登记的临时文件', () async {
       final store = await AppStore.load(storage);
       final temp = await store.prepareMediaTemp('ogg');

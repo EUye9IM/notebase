@@ -40,8 +40,8 @@
 - ✅ 录音：`record`（Linux 后端 parecord + ffmpeg）→ ogg/Opus，点 🎤 → 录音条 → ✓ 即保存
 - ✅ 播放：`audioplayers`（GStreamer），列表内联播放/暂停 + 进度
 - ✅ 转写 / 摘要的手动编辑（§8 长按菜单：编辑转写 / 编辑摘要）
-- ⏳ 图片导入（`file_selector`，Linux 无应用内拍照）、缩略图与查看器
-- ⏳ 媒体文件清理（无主媒体回收）
+- ✅ 图片导入（`file_selector` 的 GTK 原生对话框；只复制不移动用户原图）、缩略图与全屏查看器
+- ⏳ 媒体文件清理（无主媒体回收）；应用内取景器随 Android（M8，Linux 无 camera 插件支持）
 
 ### Phase 2 — 多媒体与存储升级
 
