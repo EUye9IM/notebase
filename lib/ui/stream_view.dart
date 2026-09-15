@@ -118,7 +118,7 @@ class _StreamViewState extends State<StreamView> {
 
     if (entries.isEmpty) {
       _farFromBottom = false; // 空态：无内容可滚，按钮必须消失
-      return const Center(child: Text('⬇ 在下面记第一条'));
+      return const Center(child: Text('⬇ 在下面记第一条，或点 🎤 / 📷'));
     }
 
     final rows = <Widget>[];
@@ -223,7 +223,7 @@ Future<EntryAction?> showEntryMenu(
 
 /// 时间流与搜索结果共用的条目行（ui-design §4 / §8）。
 ///
-/// 按类型渲染：文本=正文；音频=播放行（时长/进度）+ 文字面；照片=占位（M6d 换缩略图）。
+/// 按类型渲染：文本=正文；音频=播放行（时长/进度）+ 文字面；照片=缩略图。
 /// 点按：文本=编辑底 sheet，音频=内联播放/暂停（§8），照片=查看器（M6d）。
 /// 长按（触屏）/ 右键（桌面）= 复制 / 编辑转写与摘要 / 删除。
 class EntryTile extends StatelessWidget {
@@ -300,10 +300,12 @@ class EntryTile extends StatelessWidget {
     }
   }
 
-  /// 媒体条目的文字面：摘要优先；无摘要但有转写时用转写首行兜底（§4）。
+  /// 媒体条目的文字面：摘要优先；**录音**在无摘要时用转写首行兜底（§4）。
+  /// 照片只认摘要——转写是录音的概念，照片即便被写入转写也不显示。
   String? get _caption {
     final summary = entry.summary?.trim();
     if (summary != null && summary.isNotEmpty) return summary;
+    if (entry.type != EntryType.audio) return null;
     final transcript = entry.transcript?.trim();
     if (transcript != null && transcript.isNotEmpty) {
       return transcript.split('\n').first;
@@ -316,8 +318,13 @@ class EntryTile extends StatelessWidget {
       case EntryType.text:
         showEntryEditor(context, store, entry);
       case EntryType.audio:
-        // §8：音频条目的点按 = 列表内联播放/暂停
-        PlaybackScope.read(context)?.toggle(entry);
+        // §8：音频条目的点按 = 列表内联播放/暂停。
+        // 不可播放时（未注入播放能力 / 文件已丢失）不能 toggle：否则会把行
+        // 标成「播放中」而其实毫无声音，进度定时器还空转（评审 P3-1）。
+        final playback = PlaybackScope.read(context);
+        if (playback != null && playback.available && entry.file != null) {
+          playback.toggle(entry);
+        }
       case EntryType.photo:
         final file = entry.file;
         if (file != null) showPhotoViewer(context, store.mediaPath(file));

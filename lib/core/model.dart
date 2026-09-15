@@ -2,7 +2,7 @@
 //
 // core 层：只允许 import `dart:*`。字段语义与不变式见 docs/ui-design.mdx §2。
 
-/// 条目类型。v1 只有 text 暴露 UI 入口，photo / audio 为预留（M6）。
+/// 条目类型。三种均已落地：text / audio（录音，ogg-Opus）/ photo（图片导入）。
 enum EntryType { text, photo, audio }
 
 /// 主题偏好。core 不依赖 Flutter，自有枚举；UI 层映射为 ThemeMode。

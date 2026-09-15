@@ -48,7 +48,7 @@ lib/
 ├── ui/      Flutter：app / home / stream_view / input_bar / notebook_list /
 │            search_view / editor_sheet / settings_view / listenable_bridge /
 │            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）/
-│            media_importer（选图抽象）/ photo_view（缩略图与查看器）
+│            media_importer（选图抽象）/ photo_view（缩略图与查看器）/ startup_views（启动视图）
 └── main.dart  入口：注入应用目录 → 加载 AppStore → 启动
 ```
 
@@ -110,6 +110,11 @@ lib/
   临时文件成孤儿、还能二次开录）都是这条坑的实例。
 - **别用真实文件系统做 UI 测试**：用 `test/support/memory_storage.dart`
   （`MemoryStorage` / `SlowMemoryStorage`——后者模拟写延迟，用于发送重入类测试）。
+- **widget 测试里不要 `await` 真实文件 I/O**：`testWidgets` 跑在 fake-async 区，
+  真实 I/O 的 Future 永不完成，测试会**直接挂死**（本项目已因此超时两次）。
+  需要真实文件时用**同步** API（`writeAsBytesSync` / `existsSync` / `createTempSync`）
+  或在 `setUp` 里准备；`Image.file` 的解码同理，UI 层要覆盖「缺失占位」就先用
+  `existsSync` 分支渲染占位，不要依赖 `errorBuilder`。
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（已修）：
   撤销回退用例里当前本恰好是 default，无法区分「落到 default」与「落到当前本」。
 
@@ -136,7 +141,8 @@ lib/
   与 §6「删除笔记本并入 default」是不同语义。
 - 媒体条目：录音=ogg/Opus（基础 GStreamer 可解码，aac 不行）；删除条目不删媒体文件
   （撤销窗口内还要用），无主媒体清理见 `dev-plan §7`；长按菜单按类型给项
-  （录音=编辑转写/编辑摘要，照片=编辑摘要，文本=编辑）。
+  （文本=复制/编辑/删除；录音=复制/编辑转写/编辑摘要/删除；照片=复制/编辑摘要/删除，
+  有可复制文字才出现「复制」）。
 - 照片渲染：缩略图先做**同步存在性检查**再决定是否发起解码（缺失即占位「图片已丢失」，
   §10）；点击进全屏查看器，点空白关闭。导入用 `file_selector`，**只复制不移动**用户原图。
 
@@ -144,15 +150,14 @@ lib/
 
 按 `docs/dev-plan.md` 的 M1–M5 推进，一个里程碑一次提交；每个里程碑结束必须满足
 「检查清单」。当前：**M1–M5 已完成**（§11 验收记录见 `docs/dev-plan.md` §5，
-M5 评审修复记录见 §6），**M6 多媒体进行中**：M6a 核心媒体层 ✅ / M6b 录音 ✅ /
-M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅ ——
-**M6 多媒体全段已完成**，剩下的是 dev-plan §7 的收尾项（无主媒体清理、真机手动核对）。
+M5 评审修复记录见 §6），**M6 多媒体已完成**（M6a 核心媒体层 / M6b 录音 / M6c 播放与媒体渲染 / M6d 图片导入 /
+M6e 转写摘要编辑），剩下的是 `dev-plan §7` 的收尾项（无主媒体清理、真机手动核对）。
 
 **未完成 / 待观察项**（勿遗忘，另有 `dev-plan §7`）：
 - **无主媒体清理**：删除条目不删媒体文件（撤销窗口内还要用），会留下不再被引用的
   `media/*.ogg|png` 与异常退出的 `media/.tmp/*`
-- **真机手动核对**：应用内完整录音链路（点 🎤 → 说话 → ✓ → 条目 → 播放）尚未手点过，
-  插件层已由 M6 spike 验证
+- **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未手点过，
+  插件层已由 M6 spike 与构建验证（widget 测试受 fake-async 限制，不覆盖真实文件 I/O）
 - 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）

@@ -72,7 +72,8 @@ class PlaybackController extends ChangeNotifier {
 
   final MediaPlayer player;
 
-  /// 是否具备真实播放能力：false 时条目行渲染为不可播放（不误导用户点击）。
+  /// 是否具备真实播放能力：false 时条目行渲染为不可播放，且点按不会 toggle
+  /// （否则会把行标成「播放中」而其实毫无声音）。
   final bool available;
 
   /// 条目的媒体相对路径 → 绝对路径（由 core 的落点约定决定）。
@@ -83,6 +84,11 @@ class PlaybackController extends ChangeNotifier {
 
   /// 底层播放器是否已装载当前条目（暂停后可 resume，不必重头播）。
   bool _loaded = false;
+
+  /// 播放器里**真正装载着**的条目 id：完成事件不带身份，只能靠它判断事件
+  /// 归属。否则 A 自然播完的完成事件若晚于「点 B」送达，会无条件清空
+  /// `_playingId`，把 B 的播放态抹掉（M6 全段评审 P2-1）。
+  String? _loadedId;
 
   Duration _position = Duration.zero;
   Timer? _ticker;
@@ -144,15 +150,18 @@ class PlaybackController extends ChangeNotifier {
       final path = await resolvePath(entry);
       if (_playingId != entry.id) return; // 解析路径期间被接管
       await player.stop(); // 单播放器：先停再播，保证同时只播一条
+      _loadedId = null; // 停掉之后，之前装载的条目的完成事件不再算数
       await player.play(path);
       if (_playingId != entry.id) return;
       _loaded = true;
+      _loadedId = entry.id;
     } on Object {
       // 播放失败（文件缺失 / 缺解码器）：复位为未播放，UI 表现为点不动
       if (_playingId == entry.id) {
         _playingId = null;
         _playing = false;
         _loaded = false;
+        _loadedId = null;
         _position = Duration.zero;
         _stopTicker();
         notifyListeners();
@@ -166,6 +175,7 @@ class PlaybackController extends ChangeNotifier {
     _playingId = null;
     _playing = false;
     _loaded = false;
+    _loadedId = null;
     _position = Duration.zero;
     _stopTicker();
     notifyListeners();
@@ -178,6 +188,9 @@ class PlaybackController extends ChangeNotifier {
     });
   }
 
+  /// 停止一切播放（切笔记本时调用：否则声音继续、当前本却没有任何播放控件）。
+  Future<void> stopAll() => stopIfPlaying(_playingId ?? '');
+
   /// 串行化底层播放器操作（沿用存储写队列的思路）。
   Future<void> _enqueue(Future<void> Function() operation) {
     final op = _queue.catchError((_) {}).then((_) => operation());
@@ -186,6 +199,11 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void _handleComplete() {
+    // 严格判定：完成事件只对「播放器里真正装载着的那条」有效。
+    // play 尚在途中、或已被别的条目接管时（_loadedId 为 null 或指向旧条目），
+    // 事件一律忽略——否则会抹掉新起播条目的播放态（评审 P2-1）。
+    if (_loadedId != _playingId) return;
+    _loadedId = null;
     _playingId = null;
     _playing = false;
     _loaded = false;

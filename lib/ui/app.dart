@@ -91,6 +91,7 @@ class _NotebaseAppState extends State<NotebaseApp> {
             startupNotice: widget.startupNotice,
             recorder: widget.recorder,
             importer: widget.importer,
+            playback: _playback,
           ),
         ),
       ),

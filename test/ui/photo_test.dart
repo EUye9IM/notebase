@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notebase/core/model.dart';
@@ -33,11 +35,24 @@ class FakeMediaImporter implements MediaImporter {
 void main() {
   late MemoryStorage storage;
   late AppStore store;
+  late Directory dir;
 
   setUp(() async {
+    // 全程用**同步**文件 I/O：widget 测试跑在 fake-async 区里，
+    // await 真实 I/O 的 Future 永远不会完成（会直接挂住测试）。
+    dir = Directory.systemTemp.createTempSync('notebase_photo_ui');
     storage = MemoryStorage();
     store = await AppStore.load(storage);
   });
+
+  tearDown(() async {
+    dir.deleteSync(recursive: true);
+  });
+
+  String pickedImage(String name) {
+    final file = File('${dir.path}/$name')..writeAsBytesSync(const [1, 2, 3]);
+    return file.path;
+  }
 
   /// 构造一条照片条目，并让它的文件不存在（渲染走占位分支，不触发解码）。
   Future<void> addPhotoWithMissingFile() async {
@@ -59,6 +74,21 @@ void main() {
       find.widgetWithIcon(IconButton, Icons.photo_outlined);
 
   group('导入交互（§5.3）', () {
+    testWidgets('点 📷 选图 → 立即入流（成功路径，一次一张）', (tester) async {
+      final picked = pickedImage('IMG_1.png');
+      final importer = FakeMediaImporter(path: picked);
+      await pumpApp(tester, importer: importer);
+
+      await tester.tap(importButton());
+      await tester.pumpAndSettle();
+
+      expect(importer.pickCount, 1);
+      final entry = store.entries.single;
+      expect(entry.type, EntryType.photo);
+      expect(entry.file, 'media/${entry.id}.png'); // 命名约定：文件名=条目 id
+      expect(File(picked).existsSync(), isTrue); // 原图仍在原处（只复制不移动）
+    });
+
     testWidgets('用户取消：不产生条目', (tester) async {
       final importer = FakeMediaImporter(path: null);
       await pumpApp(tester, importer: importer);
@@ -100,6 +130,9 @@ void main() {
 
       expect(find.byType(PhotoThumbnail), findsOneWidget);
       expect(find.text('图片已丢失'), findsOneWidget);
+      // 关键：走的是「同步存在性检查」分支，没有发起 Image.file 解码
+      // （两者文案相同，只断言文案无法证明这条安全要点）
+      expect(find.byType(Image), findsNothing);
       expect(tester.takeException(), isNull);
     });
 

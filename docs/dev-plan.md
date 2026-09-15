@@ -1,11 +1,12 @@
 # 开发计划 v1（初版）
 
-> 范围声明：**文本优先，Linux 先行**。照片 / 录音整体后置（模型字段已预留，UI 不暴露入口），
-> AI 与多平台再后置。交互规格以 [ui-design.mdx](ui-design.mdx) 为准（下文 § 均指该文档章节）。
+> 范围声明：**Linux 先行**。文本闭环（M1–M5）与多媒体（M6a–M6e：录音 / 播放 / 图片导入 /
+> 转写摘要编辑）均已完成；AI、跨设备同步与多平台仍后置。交互规格以
+> [ui-design.mdx](ui-design.mdx) 为准（下文 § 均指该文档章节）。
 
 ## 1. 原则
 
-1. **文字先行** — v1 只做文本条目完整闭环；`Entry` 预留 `type/file/duration/summary/transcript` 字段，但 UI 只出现文本入口。
+1. **文字先行** — 先做文本条目完整闭环，再叠多媒体（已完成）。`Entry` 的 `type/file/duration/summary/transcript` 现均已落地。
 2. **Linux 先行** — 只在 Linux 桌面端开发与验证。平台能力（应用目录、权限、相机/麦克风）一律隔离在 UI 层边缘，由 UI 注入 core，多平台后置。
 3. **UI 与核心分离** — `core/` 零 Flutter 依赖；`ui/ → core/` 单向依赖。核心逻辑可纯 Dart 测试，未来换 UI（Android、其他前端）不动核心。
 4. **小步可验收** — 每个里程碑结束应用可运行。验收标准固定三件套：`flutter analyze` 0 issue、测试全绿、手动核对 §11 操作步数表。
@@ -18,18 +19,25 @@ lib/
 │   ├── model.dart             # Notebook、Entry（含媒体预留字段）
 │   ├── listenable.dart        # 最小 Listenable / ChangeNotifier（自实现，~20 行）
 │   ├── store.dart             # AppStore：笔记本 + 当前流 + 搜索 + 偏好
+│   ├── startup.dart           # 带兜底的启动加载（损坏隔离后重试，§10）
 │   └── storage/
-│       ├── storage.dart       # 接口：notebooks / entries / prefs 读写
+│       ├── storage.dart       # 接口：notebooks / entries / prefs / 媒体落点与隔离
 │       └── json_storage.dart  # JSON 文件实现（baseDir 由外部注入）
 └── ui/                        # Flutter 层
     ├── app.dart               # MaterialApp + 主题（偏好驱动）
     ├── listenable_bridge.dart # core→Flutter 监听桥接（core 零 Flutter 的代价集中处）
     ├── home.dart              # 应用壳：宽屏 / 窄屏布局切换（§3）
     ├── stream_view.dart       # 时间流：按天分组、升序、空态（§4）
-    ├── input_bar.dart         # 常驻输入栏，v1 仅文本（§5.1）
-    ├── notebook_list.dart     # 笔记本切换 / 新建 / 重命名 / 删除（§6，M3）
-    ├── search_view.dart       # 原地搜索模式（§7，M4 待建）
-    ├── editor_sheet.dart      # 条目编辑底 sheet（§8，M4 待建）
+    ├── input_bar.dart         # 常驻输入栏：文本 + 🎤 录音 + 📷 导入（§5.1/§5.2/§5.3）
+    ├── notebook_list.dart     # 笔记本切换 / 新建 / 重命名 / 删除（§6）
+    ├── startup_views.dart     # 启动提示条与兜底错误界面（§10）
+    ├── media_recorder.dart    # 录音抽象 + record 实现（§5.2）
+    ├── media_player.dart      # 播放抽象 + 播放编排/Scope（§4/§8）
+    ├── recording_session.dart # 录音会话（由页面持有，跨布局重建存活，§5.2）
+    ├── media_importer.dart    # 选图抽象 + file_selector 实现（§5.3）
+    ├── photo_view.dart        # 照片缩略图与全屏查看器（§4/§8）
+    ├── search_view.dart       # 原地搜索模式（§7）
+    ├── editor_sheet.dart      # 条目编辑底 sheet 与字段编辑（§8）
     └── settings_view.dart     # 设置：主题
 ```
 
@@ -46,7 +54,8 @@ lib/
 <app-data>/notebooks.json        # 笔记本索引
 <app-data>/nb_<id>.json          # 每笔记本一个条目数组
 <app-data>/prefs.json            # 偏好（主题、当前笔记本）
-<app-data>/media/                # 预留，v1 为空
+<app-data>/media/<条目 id>.<ext>  # 录音 ogg / 图片，文件名即条目 id
+<app-data>/media/.tmp/<uid>.<ext> # 录制中的临时落点（成功即归档）
 ```
 
 ## 3. 里程碑
@@ -112,9 +121,9 @@ lib/
 - **写入并发**（M3 评审后已修）：`JsonFileStorage` 按路径串行化 + 唯一 tmp 名；修前实测并发写 120/120 轮 `PathNotFoundException`、300 轮中 1 轮静默丢数据，回归测试已固化（`json_storage_test.dart`）。
 - **流渲染无虚拟化**：`SingleChildScrollView + Column` 全量构建，条目上千后需换 `ListView.builder`；与「JSON 全量写」同源，触发条件出现时一并处理。
 
-## 5. M5 验收记录（§11 操作步数表）
+## 5. 验收记录（§11 操作步数表，M5 + M6）
 
-每行都对应一条自动化断言；媒体相关行属 M6（N/A）。一处例外：**换行行为在 widget 测试里无法真正验证**
+每行都对应一条自动化断言（媒体行随 M6 补齐）。一处例外：**换行行为在 widget 测试里无法真正验证**
 （Enter 在测试环境既不发送也不插入换行），对应用例断言的是「未误发且原文不丢」，真换行留待真机核对：
 
 | §11 行 | 步数 | 自动化证据 |
@@ -128,7 +137,7 @@ lib/
 | 删除一条记录 | 3 | `test/ui/search_test.dart`「长按 → 删除 → 确认（3 步），并可用 5s 撤销找回」 |
 | 录一段音 | 2 | `test/ui/recording_test.dart`「点 🎤 进入录音态」「✓ 停止即保存」（1 步开录 + 1 步停止） |
 | 查看/补录转写或摘要 | 2 + 输入 | `test/ui/media_menu_test.dart`（长按 → 菜单项 → 输入） |
-| 相册导入一张 | 2–3 | `test/ui/photo_test.dart`（点 📷 → 选图 → 入流；Linux 走文件对话框） |
+| 相册导入一张 | 2–3 | `test/ui/photo_test.dart`「点 📷 选图 → 立即入流（成功路径，一次一张）」 |
 | 拍一张照（应用内取景器） | — | Linux 无 camera 插件支持，随 Android（M8），N/A |
 
 工程门禁（M5 实测）：
@@ -160,9 +169,30 @@ P3-4（弱断言）同批处理：窄屏录入用例改走真实键盘路径并�
 - **无主媒体清理**：删除条目不删媒体文件（撤销窗口内仍需要它，见 `AppStore.deleteEntry`），
   因此长期使用会留下不再被任何条目引用的 `media/*.ogg|png`。需要一个「清理无主媒体」的
   入口或后台任务；`media/.tmp/*` 的孤儿同理（正常路径已清，异常退出可能残留）。
+  另：「归档成功但写盘失败」的孤儿已由 `addMedia`/`importPhoto` 的失败回滚处理（删除已归档文件
+  并回滚内存），但**进程被强杀**这类路径仍可能留文件。
 - 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）。
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`。
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）。
 - 输入栏草稿仅内存（重启即失），如需持久化再定。
 - **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
   插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。
+
+## 6.1 评审修复记录（M6）
+
+| 编号 | 问题 | 修法 | 回归用例 |
+|---|---|---|---|
+| P1-1 | 录音态跨 State 销毁不被收尾（拖窗口跨 720 → 录音条消失、麦克风仍占用、临时文件成孤儿、可二次开录） | 录音会话上提为页面持有的 `RecordingSession` | `recording_test.dart`「录音中跨 720 布局切换…」「页面销毁时收尾…」 |
+| P2-1 | 媒体菜单不符合 §8，且「编辑」写进永不显示的 `entry.text` | 菜单按类型给项 + 转写/摘要编辑弹层 + 摘要位点按即编辑 | `media_menu_test.dart`（5 项） |
+| P2-2 | 并发点两条时「同一时刻只播一条」不成立且播放态标错行 | 意图同步落地 + 底层播放器操作串行化 | `playback_test.dart`「并发点两条…」 |
+| P2-3 | 播放完成事件不区分条目，陈旧事件抹掉新起播条目的播放态 | 严格判定「完成事件只对真正装载的条目有效」 | `playback_test.dart`「陈旧的播放完成事件…」 |
+| P3-1 | 不可播放时点按仍把行标成播放中 | `_handleTap` 校验 `available` 与文件存在 | 「不可播放时点按不会把行标成播放中」 |
+| P3-2 | 播放中切笔记本：声音继续、界面无控件 | 切本时（帧后）`stopAll()` | 「播放中切笔记本：停止播放」 |
+| P3-3 | 归档成功但写盘失败 → 孤儿文件 + 幽灵条目 + 清理指错路径 | `addMedia`/`importPhoto` 失败回滚（删文件、撤内存） | `media_test.dart`「归档成功但写盘失败…」 |
+| P3-4 | 录音期间开录的笔记本被删 → 丢录音且内部 id 进文案 | 目标本不存在时落到当前本（同 §8 撤销回退语义） | `recording_test.dart`「录音期间开录的笔记本被删除…」 |
+| P3-5 | `addMedia`/`importPhoto` 用 `putIfAbsent` 可能覆盖未加载笔记本的既有条目 | 改用 `_loadEntriesOf` | `media_test.dart`「写入未加载的笔记本不会覆盖其既有条目」 |
+| P3-6 | `RecordingSession` 与录音器从不释放 | shutdown 后 dispose，并释放 recorder | 「页面销毁后录音器被释放」 |
+| P3-7 | 导入时 `!mounted` 被当成「用户取消」，静默丢弃已选文件 | 导入不依赖 widget 存活（store 属于应用） | 成功路径用例 |
+| P3-8 | 缩略图在 build 里做同步 stat | 存在性检查移入 State 缓存 | — |
+
+M6 全段评审还列出 41 条文档漂移，已按「同一次提交内同步文档」的约定清零。

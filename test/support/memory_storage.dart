@@ -25,6 +25,9 @@ class MemoryStorage implements Storage {
 
   @override
   Future<void> saveEntries(String notebookId, List<Entry> entries) async {
+    if (failSaveEntries) {
+      throw const FileSystemException('磁盘写失败（模拟）');
+    }
     _entries[notebookId] = List.of(entries);
   }
 
@@ -43,6 +46,9 @@ class MemoryStorage implements Storage {
 
   /// 内存「磁盘」：相对路径 → 内容字节数（测试断言用）。
   final media = <String, int>{};
+
+  /// 置 true 后 saveEntries 抛错：用于验证「写盘失败要回滚」的路径。
+  bool failSaveEntries = false;
 
   @override
   Future<String> prepareMediaPath(String relativePath) async {

@@ -206,10 +206,19 @@ class AppStore extends CoreChangeNotifier {
       duration: duration,
       createdAt: DateTime.now(),
     );
-    final list = _entries.putIfAbsent(targetId, () => []);
+    // 必须走 _loadEntriesOf：目标本未加载时若用 putIfAbsent 造空列表写盘，
+    // 会覆盖该本既有条目（评审 P3-5）。
+    final list = await _loadEntriesOf(targetId);
     list.add(entry);
     _sort(list);
-    await _storage.saveEntries(targetId, list);
+    try {
+      await _storage.saveEntries(targetId, list);
+    } on Object {
+      // 写盘失败：回滚内存与已归档的文件，避免「幽灵条目」与孤儿媒体（P3-3）
+      list.removeWhere((e) => e.id == id);
+      await _storage.deleteMedia(relativePath);
+      rethrow;
+    }
     notifyListeners();
     return entry;
   }
@@ -243,10 +252,16 @@ class AppStore extends CoreChangeNotifier {
       file: relativePath,
       createdAt: DateTime.now(),
     );
-    final list = _entries.putIfAbsent(targetId, () => []);
+    final list = await _loadEntriesOf(targetId); // 同上：不可覆盖未加载笔记本
     list.add(entry);
     _sort(list);
-    await _storage.saveEntries(targetId, list);
+    try {
+      await _storage.saveEntries(targetId, list);
+    } on Object {
+      list.removeWhere((e) => e.id == id);
+      await _storage.deleteMedia(relativePath); // 清掉刚复制进来的图，不留孤儿
+      rethrow;
+    }
     notifyListeners();
     return entry;
   }

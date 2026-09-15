@@ -11,7 +11,8 @@ import 'recording_session.dart';
 /// - 文本：窄屏 Enter = 换行、➤ 发送；宽屏 Enter = 发送、Shift+Enter = 换行；
 ///   宽屏自动聚焦，窄屏不自动弹键盘。
 /// - 🎤 进入录音（§5.2）：输入栏整体替换为录音条 ✗ / 实时时长+电平 / ✓，
-///   停止即保存、丢弃不确认、时长 < 1s 视为误触丢弃；📷 待 M6d。
+///   停止即保存、丢弃不确认、时长 < 1s 视为误触丢弃。
+/// - 📷 导入图片（§5.3）：走文件对话框，一次一张，无预览确认。
 /// - 录音中断（系统抢占麦克风等）保存已录部分（§10）。
 /// 草稿暂存（仅内存）：跨笔记本切换、跨宽窄布局重建都不丢（ui-design §10）。
 /// 由 HomePage 持有——宽/窄两套布局各自构造 InputBar，State 会重建，
@@ -138,7 +139,9 @@ class _InputBarState extends State<InputBar> {
     setState(() => _importing = true);
     try {
       final source = await importer.pickImage();
-      if (source == null || !mounted) return; // 用户取消
+      if (source == null) return; // 用户取消
+      // 即便本 widget 在对话框期间被卸载（跨 720 布局重建），导入也要完成：
+      // store 属于应用，不依赖这个 State（评审 P3-7）。
       await widget.store.importPhoto(
         sourceAbsolutePath: source,
         extension: imageExtensionOf(source),

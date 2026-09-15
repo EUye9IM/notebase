@@ -34,6 +34,9 @@ class RecordingSession extends ChangeNotifier {
   /// 开始录制时所在的笔记本：录音期间切本，条目仍归这里（评审 P3-2）。
   String? _startedIn;
 
+  /// 会话已销毁：shutdown 的异步续体可能晚于 dispose，需守卫通知与消息投递。
+  bool _disposed = false;
+
   bool get recording => _recording;
   bool get busy => _busy;
   Duration get elapsed => _elapsed;
@@ -45,7 +48,7 @@ class RecordingSession extends ChangeNotifier {
     final device = recorder;
     if (device == null || _recording || _busy) return null;
     _busy = true;
-    notifyListeners();
+    _notify();
     try {
       final reason = await device.unavailableReason();
       if (reason != null) return reason;
@@ -67,24 +70,24 @@ class RecordingSession extends ChangeNotifier {
       return '无法开始录音：$error';
     } finally {
       _busy = false;
-      notifyListeners();
+      _notify();
     }
   }
 
   Future<void> _tick() async {
     if (!_recording) return;
     _elapsed += const Duration(milliseconds: 100);
-    notifyListeners();
+    _notify();
     try {
       final level = await recorder!.level();
       if (_recording) {
         _level = level;
-        notifyListeners();
+        _notify();
       }
     } on Object {
       // §10：录音被系统打断（设备被抢占等）——保存已录部分，不静默丢失。
       final message = await stopAndSave(interrupted: true);
-      if (message != null) _messages.add(message);
+      if (message != null && !_messages.isClosed) _messages.add(message);
     }
   }
 
@@ -93,7 +96,7 @@ class RecordingSession extends ChangeNotifier {
     if (!_recording || _busy) return null;
     _stopTicker();
     _busy = true;
-    notifyListeners();
+    _notify();
 
     Duration duration = _elapsed;
     try {
@@ -111,7 +114,7 @@ class RecordingSession extends ChangeNotifier {
     if (!_recording || _busy) return;
     _stopTicker();
     _busy = true;
-    notifyListeners();
+    _notify();
     try {
       await recorder?.discard();
     } on Object {
@@ -120,7 +123,7 @@ class RecordingSession extends ChangeNotifier {
     await _discardTemp();
     _reset();
     _busy = false;
-    notifyListeners();
+    _notify();
   }
 
   /// 页面/应用销毁时收尾：绝不留下被占用的麦克风与孤儿临时文件。
@@ -145,19 +148,24 @@ class RecordingSession extends ChangeNotifier {
   Future<String?> _commit(Duration duration) async {
     final temp = _temp;
     _temp = null;
-    final notebookId = _startedIn;
+    // 开录时的笔记本可能已被删除：此时落到当前笔记本（与 §8 撤销回退同语义），
+    // 而不是把内部 id 抛进文案、丢掉整段录音（评审 P3-4）。
+    final notebookId =
+        (_startedIn != null && store.notebooks.any((n) => n.id == _startedIn))
+        ? _startedIn
+        : null;
 
     if (temp == null) {
       _reset();
       _busy = false;
-      notifyListeners();
+      _notify();
       return null;
     }
     if (duration < const Duration(seconds: 1)) {
       await store.discardMedia(temp.relativePath); // 误触：丢弃
       _reset();
       _busy = false;
-      notifyListeners();
+      _notify();
       return '太短了';
     }
 
@@ -176,7 +184,7 @@ class RecordingSession extends ChangeNotifier {
     }
     _reset();
     _busy = false;
-    notifyListeners();
+    _notify();
     return message;
   }
 
@@ -193,6 +201,10 @@ class RecordingSession extends ChangeNotifier {
     _startedIn = null;
   }
 
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
   void _stopTicker() {
     _ticker?.cancel();
     _ticker = null;
@@ -200,8 +212,12 @@ class RecordingSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _stopTicker();
-    _messages.close();
+    if (!_messages.isClosed) _messages.close();
+    // 录音器的释放归属本会话（与播放器归 PlaybackController 同理）：
+    // 否则 RecordMediaRecorder 会一直活到进程结束（评审 P3-6）。
+    unawaited(recorder?.dispose() ?? Future<void>.value());
     super.dispose();
   }
 }

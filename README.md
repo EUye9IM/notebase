@@ -2,8 +2,8 @@
 
 本地优先的快速笔记本：打开即记，一条一档（文字 / 语音 / 拍照），按笔记本分组，完全离线。
 
-> 当前阶段：**文本条目闭环已完成**（笔记本、时间流、本地搜索），**多媒体进行中**——
-> 录音（ogg/Opus）与内联播放已可用，图片导入待做；仅 Linux 桌面端。UI 与核心分离，为多平台留好分层。
+> 当前阶段：**文本闭环与多媒体均已完成**——文字 / 录音（ogg/Opus）/ 图片三种条目都能记、能看、
+> 能搜、能编辑；仅 Linux 桌面端。UI 与核心分离，为多平台留好分层。
 >
 > 设计文档：[docs/ui-design.mdx](docs/ui-design.mdx)（交互设计与验收标准）· [docs/dev-plan.md](docs/dev-plan.md)（开发计划与里程碑）
 
@@ -13,14 +13,14 @@
 |----|------|------|
 | UI | Flutter | Linux 桌面端先行；Android 工程已预留，多平台后置 |
 | 核心 | 纯 Dart，零 Flutter 依赖 | 模型 / 存储 / 搜索 / 状态，全部在 `lib/core/`，可脱离 Flutter 测试与复用 |
-| 存储 | JSON 文件（`Storage` 接口收口） | `notebooks.json` + `nb_<id>.json` + `prefs.json`；SQLite 迁移后置（M7） |
+| 存储 | JSON 文件（`Storage` 接口收口） | `notebooks.json` + `nb_<id>.json` + `prefs.json` + `media/<条目 id>.<ext>`；SQLite 迁移后置（M7） |
 | 状态 | 自实现最小 `Listenable` | 不依赖 flutter/foundation，core 保持纯净 |
-| 多媒体 | 后置（M6） | 录音 / 播放 / 拍照 / 相册导入，届时验证 Linux 插件成熟度 |
+| 多媒体 | `record` / `audioplayers` / `file_selector` | 录音 ogg-Opus（Linux 后端 parecord+ffmpeg）、GStreamer 播放、GTK 文件对话框选图；Linux 无应用内取景器 |
 | 网络 / AI | 暂不引入 | 后置到 Phase 3；转写 / 摘要字段已预留，先支持手动编辑 |
 
 ## 阶段设计
 
-### Phase 1 — 文本速记闭环（🚧 当前）
+### Phase 1 — 文本速记闭环（✅ 已完成，M1–M5）
 
 **目标：** Linux 桌面端交付可日常使用的纯文本快速笔记应用。
 
@@ -35,7 +35,7 @@
 
 **不包含：** AI、同步、Android 构建。
 
-### Phase 1.5 — 多媒体（🚧 进行中）
+### Phase 1.5 — 多媒体（✅ 已完成，M6）
 
 - ✅ 录音：`record`（Linux 后端 parecord + ffmpeg）→ ogg/Opus，点 🎤 → 录音条 → ✓ 即保存
 - ✅ 播放：`audioplayers`（GStreamer），列表内联播放/暂停 + 进度
@@ -43,12 +43,11 @@
 - ✅ 图片导入（`file_selector` 的 GTK 原生对话框；只复制不移动用户原图）、缩略图与全屏查看器
 - ⏳ 媒体文件清理（无主媒体回收）；应用内取景器随 Android（M8，Linux 无 camera 插件支持）
 
-### Phase 2 — 多媒体与存储升级
+### Phase 2 — 存储升级与数据出口
 
-- 录音（record / 播放）、拍照 / 相册导入、媒体文件管理
-- 转写 / 摘要的手动编辑（模型字段已预留）
 - 存储迁移 SQLite（`sqflite` + `sqflite_common_ffi`）+ FTS5 全文检索
 - 数据导出（JSON / Markdown）
+- 无主媒体清理（删除条目不删媒体文件，见 dev-plan §7）
 
 ### Phase 3 — AI 能力（远程 API）
 
@@ -74,7 +73,7 @@
 
 业务逻辑全部 Dart；SQLite 经 `sqflite` 走 FFI。Rust 只在本地推理 / 媒体管线性能不足时再评估（flutter_rust_bridge），数据库永远留在 Dart 侧。
 
-## 当前阶段待办（Phase 1）
+## 当前阶段待办（Phase 1.5 收尾）
 
 - [x] M1 核心层：模型 / JSON 存储 / 搜索 + 纯 Dart 单测（替换旧 `store.dart`，废弃 `shared_preferences`）
 - [x] M2 时间流 + 文本录入：宽 / 窄应用壳、按天分组、空态、自动滚底
@@ -104,14 +103,16 @@ flutter test          # core 层为纯 Dart 测试，不依赖桌面环境
 ```
 notebase/
 ├── lib/
-│   ├── core/               # 纯 Dart：model / store / listenable + storage 接口与 JSON 实现
-│   ├── ui/                 # Flutter：app / home / stream_view / input_bar /
-│   │                       #          notebook_list / settings_view + listenable_bridge
-│   └── main.dart           # 入口：注入应用目录 → 加载 AppStore → 启动
+│   ├── core/               # 纯 Dart：model / store / startup / listenable + storage 接口与 JSON 实现
+│   ├── ui/                 # Flutter：app / home / stream_view / input_bar / notebook_list /
+│   │                       #   search_view / editor_sheet / settings_view / startup_views /
+│   │                       #   media_recorder / media_player / recording_session /
+│   │                       #   media_importer / photo_view / listenable_bridge
+│   └── main.dart           # 入口：注入应用目录与平台能力 → 加载 AppStore → 启动
 ├── AGENTS.md               # 给编码 agent 的约定：架构铁律、命令、坑与检查清单
 ├── docs/
 │   ├── ui-design.mdx       # 交互设计（含 §11 操作步数验收表）
-│   └── dev-plan.md         # 开发计划（里程碑 M1–M5，多媒体后置）
+│   └── dev-plan.md         # 开发计划（M1–M5 文本 + M6 多媒体分段）
 ├── test/                   # core 单测（纯 Dart，不 pump widget）+ ui widget 测试
 ├── android/                # Android 工程（后置，已预留）
 ├── linux/                  # Linux 桌面工程（windows / macos 已裁剪，需要时 flutter create 补回）

@@ -231,6 +231,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.play_circle_filled));
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.pause_circle_filled), findsOneWidget);
+      final stopBefore = player.stopCount; // 基线：play 内部已 stop 过一次，绝对值恒真
 
       await tester.longPress(find.text('要删的'));
       await tester.pumpAndSettle();
@@ -239,7 +240,64 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, '删除'));
       await tester.pumpAndSettle();
 
-      expect(player.stopCount, greaterThanOrEqualTo(1));
+      expect(player.stopCount, greaterThan(stopBefore)); // 删除确实触发了停播
+      expect(find.byIcon(Icons.pause_circle_filled), findsNothing);
+    });
+
+    // P2-1 回归：完成事件不带身份，陈旧的完成事件不得抹掉新起播条目的播放态。
+    testWidgets('陈旧的播放完成事件不抹掉新起播条目的播放态', (tester) async {
+      await addAudio(summary: '第一条');
+      await addAudio(summary: '第二条');
+      final player = FakeMediaPlayer()..playGate = Completer<void>();
+      await pumpApp(tester, player: player);
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled).first);
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.play_circle_filled).first); // 改点第二条
+      await tester.pump();
+
+      player.complete(); // 第一条的完成事件在此刻送达
+      await tester.pump();
+      player.playGate!.complete();
+      await tester.pumpAndSettle();
+
+      final playingRow = find.ancestor(
+        of: find.byIcon(Icons.pause_circle_filled),
+        matching: find.byType(EntryTile),
+      );
+      expect(
+        find.descendant(of: playingRow, matching: find.text('第二条')),
+        findsOneWidget, // 第二条仍在播放态，没被陈旧事件抹掉
+      );
+    });
+
+    // P3-1 回归：不可播放时点按不得把行标成「播放中」。
+    testWidgets('不可播放时点按不会把行标成播放中', (tester) async {
+      await addAudio(summary: '没有播放器');
+      await pumpApp(tester); // 未注入 player → available=false
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.pause_circle_filled), findsNothing);
+    });
+
+    // P3-2 回归：切笔记本要停播，否则声音继续而当前本没有任何播放控件。
+    testWidgets('播放中切笔记本：停止播放', (tester) async {
+      await addAudio(summary: '正在播的');
+      final player = FakeMediaPlayer();
+      await pumpApp(tester, player: player);
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.pause_circle_filled), findsOneWidget);
+      final stopBefore = player.stopCount;
+
+      final other = await store.createNotebook('工作');
+      await store.switchNotebook(other.id);
+      await tester.pumpAndSettle();
+
+      expect(player.stopCount, greaterThan(stopBefore));
       expect(find.byIcon(Icons.pause_circle_filled), findsNothing);
     });
 

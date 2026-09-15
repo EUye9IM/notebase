@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/store.dart';
 import 'input_bar.dart';
 import 'media_importer.dart';
+import 'media_player.dart';
 import 'media_recorder.dart';
 import 'notebook_list.dart';
 import 'recording_session.dart';
@@ -27,6 +28,7 @@ class HomePage extends StatefulWidget {
     this.startupNotice,
     this.recorder,
     this.importer,
+    this.playback,
   });
 
   final AppStore store;
@@ -36,6 +38,9 @@ class HomePage extends StatefulWidget {
 
   /// 图片导入能力，透传给输入栏（§5.3）。
   final MediaImporter? importer;
+
+  /// 播放编排：切笔记本时停播，避免「声音继续但当前本没有任何播放控件」。
+  final PlaybackController? playback;
 
   /// 启动期提示（数据损坏等），显示为可关闭的提示条（ui-design §10）。
   final String? startupNotice;
@@ -63,6 +68,8 @@ class _HomePageState extends State<HomePage> {
   /// 宽窄布局由 build 判定；退出搜索时用它决定是否把焦点交还输入栏。
   bool _wide = true;
 
+  String? _lastNotebookId;
+
   @override
   void initState() {
     super.initState();
@@ -70,12 +77,32 @@ class _HomePageState extends State<HomePage> {
       store: widget.store,
       recorder: widget.recorder,
     );
+    _lastNotebookId = widget.store.currentNotebookId;
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final id = widget.store.currentNotebookId;
+    if (_lastNotebookId != null && _lastNotebookId != id) {
+      // 切本即停播：否则声音继续，而新本的列表里没有任何播放控件可停（评审 P3-2）。
+      // 必须延到帧后：stopAll 会同步 notifyListeners，而 didUpdateWidget 处在
+      // build 阶段，同步通知会把其它元素标脏（!_dirty 断言）。
+      final playback = widget.playback;
+      if (playback != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(playback.stopAll());
+        });
+      }
+    }
+    _lastNotebookId = id;
   }
 
   @override
   void dispose() {
     // 收尾：释放麦克风、清掉临时文件；已录够 1s 的内容尽力保住。
-    unawaited(_recording.shutdown());
+    // shutdown 是异步的，收尾完成后才 dispose（否则通知会打到已销毁的 notifier）。
+    unawaited(_recording.shutdown().whenComplete(_recording.dispose));
     _searchController.dispose();
     _searchFocus.dispose();
     _inputFocus.dispose();

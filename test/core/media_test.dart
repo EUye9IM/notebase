@@ -131,6 +131,59 @@ void main() {
       );
     });
 
+    test('归档成功但写盘失败：回滚内存并删掉已归档的文件（P3-3 回归）', () async {
+      final storage = MemoryStorage()..failSaveEntries = true;
+      final store = await AppStore.load(storage);
+      await storage.prepareMediaPath('media/.tmp/a.ogg');
+
+      await expectLater(
+        store.addMedia(
+          type: EntryType.audio,
+          sourceRelativePath: 'media/.tmp/a.ogg',
+          extension: 'ogg',
+          duration: 2,
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(store.entries, isEmpty); // 不存在「重启即消失」的幽灵条目
+      final orphan = storage.media.keys.where(
+        (k) => !k.contains('.tmp'), // 归档后的正式文件
+      );
+      expect(orphan, isEmpty); // 也不留孤儿媒体
+    });
+
+    test('写入未加载的笔记本不会覆盖其既有条目（P3-5 回归）', () async {
+      // B 本有既有条目，但启动只加载当前本（default）→ B 未加载
+      await storage.saveNotebooks([
+        Notebook.createDefault(),
+        Notebook(id: 'b', name: 'B', createdAt: DateTime(2026)),
+      ]);
+      await storage.saveEntries('b', [
+        Entry(
+          id: 'old',
+          notebookId: 'b',
+          type: EntryType.text,
+          text: '既有条目',
+          createdAt: DateTime(2026),
+        ),
+      ]);
+      final store = await AppStore.load(storage);
+      final temp = await store.prepareMediaTemp('ogg');
+      await File(temp.absolutePath).writeAsBytes([1, 2, 3]);
+
+      await store.addMedia(
+        type: EntryType.audio,
+        sourceRelativePath: temp.relativePath,
+        extension: 'ogg',
+        notebookId: 'b',
+      );
+
+      expect(await store.entryCountOf('b'), 2); // 既有的没被覆盖
+      final onDisk = await storage.loadEntries('b');
+      expect(onDisk.map((e) => e.text), contains('既有条目'));
+    });
+
     test('临时文件归档为 media/<条目 id>.ogg；删除条目不删文件', () async {
       final store = await AppStore.load(storage);
       final temp = await store.prepareMediaTemp('ogg');

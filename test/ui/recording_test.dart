@@ -221,6 +221,41 @@ void main() {
       expect(find.byType(TextField), findsOneWidget); // 未进入录音态
     });
 
+    // P3-4 回归：开录时的笔记本若在录音期间被删，不能丢录音、也不能把内部 id
+    // 抛进文案——落到当前笔记本（与 §8 撤销回退同语义）。
+    testWidgets('录音期间开录的笔记本被删除：落到当前笔记本而不是丢录音', (tester) async {
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      final work = await store.createNotebook('工作'); // 当前 = 工作
+      final recorder = FakeMediaRecorder(
+        stopDuration: const Duration(seconds: 3),
+      );
+      await pumpApp(tester, store, recorder: recorder);
+
+      await tester.tap(recordButton());
+      await tester.pumpAndSettle();
+      await store.deleteNotebook(work.id); // 录到一半把本删了 → 当前回到 default
+      await tester.pumpAndSettle();
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('保存录音失败'), findsNothing);
+      expect(await store.entryCountOf(Notebook.defaultId), 1); // 录音保住了
+      expect(store.entries.single.type, EntryType.audio);
+    });
+
+    // P3-6 回归：会话销毁时要连录音器一起释放（否则活到进程结束）。
+    testWidgets('页面销毁后录音器被释放', (tester) async {
+      final (store, _) = await freshStore();
+      final recorder = FakeMediaRecorder();
+      await pumpApp(tester, store, recorder: recorder);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+
+      expect(recorder.disposed, isTrue);
+    });
+
     testWidgets('录音中切笔记本：条目落在开录时的笔记本（P3-2 回归）', (tester) async {
       final storage = MemoryStorage();
       final store = await AppStore.load(storage);

@@ -140,14 +140,16 @@ void main() {
     );
   });
 
-  testWidgets('照片条目菜单：只有编辑摘要（没有转写项）', (tester) async {
+  testWidgets('照片条目菜单：复制 / 编辑摘要 / 删除，没有转写与通用「编辑」', (tester) async {
     await addPhoto(summary: '瓷砖型号');
     await pumpApp(tester);
 
     await openMenuOn(tester, '瓷砖型号');
 
+    expect(find.text('复制'), findsOneWidget); // §4：整条复制对媒体同样可用
     expect(find.text('编辑摘要'), findsOneWidget);
-    expect(find.text('编辑转写'), findsNothing);
-    expect(find.text('编辑'), findsNothing);
+    expect(find.text('删除'), findsOneWidget);
+    expect(find.text('编辑转写'), findsNothing); // 照片没有转写
+    expect(find.text('编辑'), findsNothing); // 不得出现会写进 entry.text 的通用项
   });
 }
