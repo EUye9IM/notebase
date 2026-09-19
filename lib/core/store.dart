@@ -80,7 +80,12 @@ class AppStore extends CoreChangeNotifier {
       createdAt: DateTime.now(),
     );
     _notebooks.add(notebook);
-    await _storage.saveNotebooks(_notebooks);
+    try {
+      await _storage.saveNotebooks(_notebooks);
+    } on Object {
+      _notebooks.removeWhere((n) => n.id == notebook.id); // 不留幽灵笔记本
+      rethrow;
+    }
     await switchNotebook(notebook.id);
     return notebook;
   }
@@ -91,8 +96,14 @@ class AppStore extends CoreChangeNotifier {
     }
     final i = _notebooks.indexWhere((n) => n.id == id);
     if (i < 0) throw ArgumentError('笔记本不存在: $id');
-    _notebooks[i] = _notebooks[i].copyWith(name: _validName(name));
-    await _storage.saveNotebooks(_notebooks);
+    final previous = _notebooks[i];
+    _notebooks[i] = previous.copyWith(name: _validName(name));
+    try {
+      await _storage.saveNotebooks(_notebooks);
+    } on Object {
+      _notebooks[i] = previous;
+      rethrow;
+    }
     notifyListeners();
   }
 
@@ -114,15 +125,28 @@ class AppStore extends CoreChangeNotifier {
         entry.copyWith(notebookId: Notebook.defaultId),
     ];
     _sort(merged);
-    _entries[Notebook.defaultId] = merged;
+    final wasCurrent = _currentId == id;
+    final nextNotebooks =
+        _notebooks.where((n) => n.id != id).toList(growable: false);
+    // 先把三份文件都落盘，**全部成功后再改内存**：否则写盘中途失败会留下
+    // 「内存已删、磁盘还在」或「条目已并、笔记本还在」的半状态（复检 P2）。
     await _storage.saveEntries(Notebook.defaultId, merged);
     await _storage.deleteEntries(id);
+    await _storage.saveNotebooks(nextNotebooks);
+    if (wasCurrent) {
+      await _storage.savePrefs(
+        Prefs(theme: _theme, currentNotebookId: Notebook.defaultId),
+      );
+    }
+    // 原地更新 default 的列表对象：撤销之类的异步续体可能还捕获着它（评审 P3-1）
+    defaults
+      ..clear()
+      ..addAll(merged);
     _entries.remove(id);
-    _notebooks.removeWhere((n) => n.id == id);
-    final wasCurrent = _currentId == id;
+    _notebooks
+      ..clear()
+      ..addAll(nextNotebooks);
     if (wasCurrent) _currentId = Notebook.defaultId;
-    await _storage.saveNotebooks(_notebooks);
-    if (wasCurrent) await _storage.savePrefs(_prefs());
     notifyListeners();
   }
 
@@ -153,10 +177,10 @@ class AppStore extends CoreChangeNotifier {
       createdAt: DateTime.now(),
     );
     final list = _entries.putIfAbsent(_currentId, () => []);
-    list.add(entry);
-    _sort(list);
-    await _storage.saveEntries(_currentId, list);
-    notifyListeners();
+    await _mutateAndSave(_currentId, list, () {
+      list.add(entry);
+      _sort(list);
+    });
     return entry;
   }
 
@@ -315,9 +339,9 @@ class AppStore extends CoreChangeNotifier {
     final located = _locateEntry(entryId);
     if (located == null) throw ArgumentError('条目不存在: $entryId');
     final (notebookId, list) = located;
-    final removed = list.removeAt(list.indexWhere((e) => e.id == entryId));
-    await _storage.saveEntries(notebookId, list);
-    notifyListeners();
+    final index = list.indexWhere((e) => e.id == entryId);
+    final removed = list[index];
+    await _mutateAndSave(notebookId, list, () => list.removeAt(index));
     return removed;
   }
 
@@ -333,10 +357,10 @@ class AppStore extends CoreChangeNotifier {
         exists ? entry : entry.copyWith(notebookId: targetId);
     final list = await _loadEntriesOf(targetId);
     if (list.any((e) => e.id == restored.id)) return;
-    list.add(restored);
-    _sort(list);
-    await _storage.saveEntries(targetId, list);
-    notifyListeners();
+    await _mutateAndSave(targetId, list, () {
+      list.add(restored);
+      _sort(list);
+    });
   }
 
   // ---------- 偏好 ----------
@@ -363,8 +387,30 @@ class AppStore extends CoreChangeNotifier {
     if (located == null) throw ArgumentError('条目不存在: $entryId');
     final (notebookId, list) = located;
     final i = list.indexWhere((e) => e.id == entryId);
-    list[i] = transform(list[i]);
-    await _storage.saveEntries(notebookId, list);
+    await _mutateAndSave(notebookId, list, () {
+      list[i] = transform(list[i]);
+    });
+  }
+
+  /// 变更内存 + 落盘：**写盘失败必须回滚内存**，否则留下「内存有、磁盘无」的
+  /// 幽灵状态——下一次任意通知它就冒出来，重启又消失（复检 P2）。回滚用
+  /// 原地清空 + 回填，保持列表对象身份（撤销等异步续体可能还持有它）。
+  /// 异常照旧向上抛：调用方负责让用户看到失败（UI 侧 catch + toast）。
+  Future<void> _mutateAndSave(
+    String notebookId,
+    List<Entry> list,
+    void Function() mutate,
+  ) async {
+    final backup = List<Entry>.of(list);
+    mutate();
+    try {
+      await _storage.saveEntries(notebookId, list);
+    } on Object {
+      list
+        ..clear()
+        ..addAll(backup);
+      rethrow;
+    }
     notifyListeners();
   }
 

@@ -65,7 +65,17 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
     if (!_canSave) return;
     // 关闭动作绑定本弹层的路由：写盘期间用户可能已把弹层关掉（见 sheet_nav.dart）
     final close = sheetCloser(context);
-    await widget.store.updateEntryText(widget.entry.id, _controller.text);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.store.updateEntryText(widget.entry.id, _controller.text);
+    } on Object catch (error) {
+      // 写盘失败：不关弹层，内容还在框里可重试；但要明确告诉用户没存上
+      // （静默关掉会让人以为改成功了，复检 P2）。
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('保存失败：$error')));
+      }
+      return;
+    }
     if (mounted) close();
   }
 
@@ -74,7 +84,15 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
     final confirmed = await showDeleteEntryDialog(context);
     if (confirmed != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    final removed = await widget.store.deleteEntry(widget.entry.id);
+    final Entry removed;
+    try {
+      removed = await widget.store.deleteEntry(widget.entry.id);
+    } on Object catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('删除失败：$error')));
+      }
+      return;
+    }
     if (!mounted) return;
     close();
     messenger.showSnackBar(undoSnackBar(widget.store, removed));
@@ -175,7 +193,15 @@ class FieldEditorSheetState extends State<FieldEditorSheet> {
   Future<void> _save() async {
     final text = _controller.text.trim();
     final close = sheetCloser(context);
-    await widget.onSave(text.isEmpty ? null : text); // 空 = 删除该字段
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.onSave(text.isEmpty ? null : text); // 空 = 删除该字段
+    } on Object catch (error) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('保存失败：$error')));
+      }
+      return;
+    }
     if (mounted) close();
   }
 

@@ -5,6 +5,7 @@ import 'package:notebase/core/model.dart';
 import 'package:notebase/core/storage/json_storage.dart';
 import 'package:notebase/core/store.dart';
 
+import '../support/memory_storage.dart';
 void main() {
   late Directory dir;
   late JsonFileStorage storage;
@@ -346,6 +347,52 @@ void main() {
       await Future.wait([s.addText('a'), s.addText('b')]);
       expect(s.entries, hasLength(2));
       expect(await storage.loadEntries(Notebook.defaultId), hasLength(2));
+    });
+  });
+
+  // 复检 P2 回归：写盘失败必须回滚内存。此前内存已改、磁盘没改，下一次任意
+  // 通知「幽灵条目」就冒出来，重启又消失；而 UI 侧只看到「什么都没发生」。
+  //
+  // 用 MemoryStorage 的 failSaveEntries：真实 JsonFileStorage 要在「能读」与
+  // 「写必失败」之间切换不便（baseDir 不可写会让 load 期补建 default 就先炸）。
+  group('写盘失败', () {
+    test('addText 失败：抛错且不留在内存，恢复后可继续写', () async {
+      final mem = MemoryStorage();
+      final s = await AppStore.load(mem);
+      mem.failSaveEntries = true;
+
+      await expectLater(
+        s.addText('发不出去'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(s.entries, isEmpty); // 内存已回滚，不留幽灵
+
+      mem.failSaveEntries = false;
+      await s.addText('这条能发');
+      expect(s.entries.map((e) => e.text), ['这条能发']);
+      expect((await AppStore.load(mem)).entries.map((e) => e.text), ['这条能发']);
+    });
+
+    test('编辑与删除失败：内存回到改动前', () async {
+      final mem = MemoryStorage();
+      final s = await AppStore.load(mem);
+      final entry = await s.addText('原文');
+      mem.failSaveEntries = true;
+
+      await expectLater(
+        s.updateEntryText(entry.id, '改后'),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(s.entries.single.text, '原文');
+
+      await expectLater(
+        s.deleteEntry(entry.id),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(s.entries.single.text, '原文'); // 删除没落盘就不能从内存消失
+
+      mem.failSaveEntries = false;
+      expect((await AppStore.load(mem)).entries.single.text, '原文');
     });
   });
 

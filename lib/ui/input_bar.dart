@@ -188,6 +188,11 @@ class _InputBarState extends State<InputBar> {
         widget.drafts?.write(_notebookId, '');
         setState(() {});
       }
+    } on Object catch (error) {
+      // 写盘失败：store 侧已把内存回滚（不留幽灵条目），这里必须让用户看见，
+      // 并保住输入框里的原文——静默失败会被当成「没发出去」，要么重发要么以为丢了
+      // （复检 P2）。
+      if (mounted) _toast('保存失败：$error');
     } finally {
       if (mounted) {
         setState(() => _sending = false);

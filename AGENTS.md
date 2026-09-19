@@ -137,6 +137,10 @@ lib/
   启动时毫无征兆，切过去才炸且该本永久打不开——启动期必须**主动全量扫描**（M5 评审 P2-3）。
 - **低价值数据不要挡住启动**：`prefs.json`（主题 + 当前笔记本）任何损坏都应回默认值继续，
   而不是把用户拦在错误界面上（M5 评审 P2-4）。
+- **core 的写路径统一走 `AppStore._mutateAndSave`**：先备份、变更、落盘，**失败原地回滚**
+  后 rethrow——否则留下「内存有、磁盘无」的幽灵条目（下次通知冒出来、重启又消失）。
+  UI 侧必须 catch 并给可读提示，且失败时**不关弹层、不清输入框**（复检 P2，回归在
+  `store_test.dart` / `polish_test.dart`）。
 - UI 里 `await` 之后再用 `context`/`ScaffoldMessenger` 前先查 `mounted`；
   messenger 在 `await` **之前**捕获。
 - **`await` 之后关弹层，光查 `mounted` 不够**：弹层若已因点遮罩/下滑/Esc 进入退场动画，

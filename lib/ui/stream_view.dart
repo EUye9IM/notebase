@@ -369,7 +369,17 @@ class EntryTile extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     // 正在播放的条目被删：先停播，避免进度定时器空转（M6 评审 P3-1）
     await PlaybackScope.read(context)?.stopIfPlaying(entry.id);
-    final removed = await store.deleteEntry(entry.id);
+    final Entry removed;
+    try {
+      removed = await store.deleteEntry(entry.id);
+    } on Object catch (error) {
+      // 删除没落盘：store 侧已回滚（条目还在），这里不能给撤销条——那会
+      // 让人以为删成功了（复检 P2）。
+      if (context.mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('删除失败：$error')));
+      }
+      return;
+    }
     if (!context.mounted) return;
     messenger.showSnackBar(undoSnackBar(store, removed));
   }

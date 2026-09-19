@@ -192,6 +192,31 @@ void main() {
       expect(fieldText(), isEmpty); // 曾经残留刚发出去的原文
       expect(store.entries.length, 1); // 且残留的原文可以再发一次 → 重复入库
     });
+
+    // 复检 P2 回归：写盘失败此前是静默的——条目没进流、输入框还在，
+    // 用户分不清「发出去了」还是「没发出去」。现在要明确提示且保住原文。
+    testWidgets('写盘失败：给可读提示并保住输入框原文', (tester) async {
+      final storage = MemoryStorage();
+      final store = await AppStore.load(storage);
+      await pumpApp(tester, store);
+      storage.failSaveEntries = true; // 模拟磁盘满 / 只读目录
+
+      await tester.enterText(find.byType(TextField), 'AAA');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_outlined));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('保存失败'), findsOneWidget);
+      expect(store.entries, isEmpty); // 没有幽灵条目
+      final field = tester
+          .widget<EditableText>(find.descendant(
+            of: find.byType(InputBar),
+            matching: find.byType(EditableText),
+          ))
+          .controller
+          .text;
+      expect(field, 'AAA'); // 原文还在，可直接重试
+    });
   });
 
   group('键盘（§5.1）', () {

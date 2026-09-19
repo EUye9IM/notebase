@@ -27,6 +27,20 @@ class SettingsSheet extends StatelessWidget {
     (ThemeSetting.dark, '深色'),
   ];
 
+  static Future<void> _setTheme(
+    BuildContext context,
+    AppStore store,
+    ThemeSetting theme,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await store.setTheme(theme);
+    } on Object catch (error) {
+      // 偏好写盘失败：界面已按新主题渲染，但重启会回旧主题——要说一声（复检 P2）
+      messenger.showSnackBar(SnackBar(content: Text('保存设置失败：$error')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -39,7 +53,7 @@ class SettingsSheet extends StatelessWidget {
           ),
           RadioGroup<ThemeSetting>(
             groupValue: store.theme,
-            onChanged: (v) => store.setTheme(v!),
+            onChanged: (v) => _setTheme(context, store, v!),
             child: Column(
               children: [
                 for (final (mode, label) in _options)

@@ -120,7 +120,12 @@ class _NotebookTile extends StatelessWidget {
       confirmLabel: '保存',
     );
     if (name == null || !context.mounted) return;
-    await store.renameNotebook(notebook.id, name);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await store.renameNotebook(notebook.id, name);
+    } on Object catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('重命名失败：$error')));
+    }
   }
 
   Future<void> _delete(BuildContext context) async {
@@ -132,7 +137,14 @@ class _NotebookTile extends StatelessWidget {
       entryCount: count,
     );
     if (confirmed != true || !context.mounted) return;
-    await store.deleteNotebook(notebook.id);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await store.deleteNotebook(notebook.id);
+    } on Object catch (error) {
+      // 删除没落盘：store 侧保证了内存不被改坏，这里给可读反馈
+      messenger.showSnackBar(SnackBar(content: Text('删除笔记本失败：$error')));
+      return;
+    }
     onDone?.call();
   }
 
@@ -164,7 +176,13 @@ class NewNotebookRow extends StatelessWidget {
   Future<void> _create(BuildContext context) async {
     final name = await showNotebookNameDialog(context, title: '新建笔记本');
     if (name == null || !context.mounted) return;
-    await store.createNotebook(name); // 建完即切换为当前笔记本
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await store.createNotebook(name); // 建完即切换为当前笔记本
+    } on Object catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('新建笔记本失败：$error')));
+      return;
+    }
     onDone?.call();
   }
 
