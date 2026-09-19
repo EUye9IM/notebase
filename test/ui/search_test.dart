@@ -233,6 +233,11 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.search));
       await tester.pumpAndSettle();
+      // 搜索期间内容发生变化才有区分度：条目数变化会走 §4 的滚底判定，
+      // 若没有「搜索态抑制滚底」，offstage 的时间流会立刻滚到底，
+      // 退出搜索后位置就没了（旧用例进出之间什么都没发生，恒真——复检）。
+      await store.deleteEntry(store.entries.first.id);
+      await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.arrow_back));
       await tester.pumpAndSettle();
 

@@ -40,6 +40,7 @@ void main() {
     EntryType type, {
     String? transcript,
     String? summary,
+    String? file,
     int created = 1000,
   }) =>
       Entry(
@@ -48,6 +49,7 @@ void main() {
         type: type,
         transcript: transcript,
         summary: summary,
+        file: file,
         createdAt: at(created),
       );
 
@@ -123,6 +125,26 @@ void main() {
       await s.restoreEntry(removed);
       expect(s.entries.map((e) => e.id), ['a', 'b', 'c']); // 按时间复位
       expect((await reload()).entries.map((e) => e.id), ['a', 'b', 'c']);
+    });
+
+    // 复检补测：§8 的默认路径是「放回**其原本所属**的笔记本」，
+    // 只有原笔记本在撤销窗口内被删掉才落到当前笔记本。这条此前没有用例，
+    // 变异「restoreEntry 恒落当前本」全套仍绿。
+    test('撤销：原笔记本仍在时放回原笔记本，不落到当前笔记本', () async {
+      final s = await reload();
+      final a = await s.createNotebook('A'); // 建完即切到 A
+      final entry = await s.addText('A 里的条目');
+      final removed = await s.deleteEntry(entry.id);
+      final b = await s.createNotebook('B'); // 切到 B，A 仍在
+
+      await s.restoreEntry(removed);
+
+      expect(await s.entryCountOf(a.id), 1); // 回到 A
+      expect(await s.entryCountOf(b.id), 0); // 不是当前本 B
+      expect(s.currentNotebookId, b.id); // 撤销不改变当前笔记本
+      final reloaded = await reload();
+      expect(await reloaded.entryCountOf(a.id), 1); // 归属也落盘了
+      expect(reloaded.entries, isEmpty); // B 仍是空的
     });
 
     test('撤销时原笔记本已删除：落到当前笔记本（而非 default）并重写归属', () async {
@@ -297,14 +319,20 @@ void main() {
       expect(s.search('LIST').single.id, 'a');
     });
 
-    test('照片命中摘要；无摘要不命中', () async {
+    test('照片命中摘要；无摘要不命中；转写与文件路径都不是命中面', () async {
       await storage.saveEntries('default', [
         mediaEntry('p1', EntryType.photo, summary: '瓷砖型号确认'),
-        mediaEntry('p2', EntryType.photo),
+        // 无摘要但**有**转写与 file：§7 明说照片只认摘要（转写是录音的概念），
+        // 因此这两者都不该命中——旧断言用的是条目 id 这种永远不是字段的词，
+        // 恒真、什么都没验到（复检：变异「照片也匹配转写」全套仍绿）。
+        mediaEntry('p2', EntryType.photo,
+            transcript: '不该被命中的转写', file: 'media/p2.png'),
       ]);
       final s = await reload();
       expect(s.search('瓷砖').single.id, 'p1');
-      expect(s.search('p1'), isEmpty); // 无文本可命中
+      expect(s.search('不该被命中'), isEmpty); // 照片不匹配转写
+      expect(s.search('p2.png'), isEmpty); // 也不匹配文件路径
+      expect(s.search('p1'), isEmpty); // 连 id 也不该被搜到（顺带守住）
     });
 
     test('录音命中转写或摘要', () async {
