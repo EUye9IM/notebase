@@ -105,9 +105,13 @@ lib/
   只信缓存的滚动判定会让「回到最新」之类的按钮残留且点不掉。要在帧末重算或监听
   `ScrollMetricsNotification`（M5 评审 P2-1）。
 - **跨布局重建会重建 State**：宽/窄两套布局各自构造同一组件时，拖动窗口跨 720 会丢 State 内的
-  数据。需要存活的状态要上提到页面持有的对象里——输入草稿（`DraftStore`，M5 评审 P3-1）
-  与**录音会话**（`RecordingSession`，M6 评审 P1-1：放 State 里会导致录音条消失、麦克风仍占用、
-  临时文件成孤儿、还能二次开录）都是这条坑的实例。
+  数据。两条应对，按状态性质选：
+  - **页面持有的模型/会话**上提到页面对象里——输入草稿（`DraftStore`，M5 评审 P3-1）
+    与**录音会话**（`RecordingSession`，M6 评审 P1-1：放 State 里会导致录音条消失、麦克风仍占用、
+    临时文件成孤儿、还能二次开录）。
+  - **组件自己的 State 必须整体存活**时，用页面持有的 `GlobalKey` 让元素跨布局**搬家**
+    而不是重建（时间流与输入栏：滚动位置与「已见基线」、发送/导入守卫与输入框内容，
+    M6 后复检 P2）。只上提个别字段容易漏，GlobalKey 一次覆盖整棵子树。
 - **别用真实文件系统做 UI 测试**：用 `test/support/memory_storage.dart`
   （`MemoryStorage` / `SlowMemoryStorage`——后者模拟写延迟，用于发送重入类测试）。
 - **widget 测试里不要 `await` 真实文件 I/O**：`testWidgets` 跑在 fake-async 区，

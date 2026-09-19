@@ -58,6 +58,14 @@ class _HomePageState extends State<HomePage> {
   /// 草稿放 State 里会在拖动窗口跨 720 时丢失（§10 / M5 评审 P3-1）。
   final _drafts = DraftStore();
 
+  /// 跨 720 布局重建时**保住子树自己的 State**（M6 后复检 P2）：宽/窄是两套
+  /// 不同的祖先链，同一个 GlobalKey 会让 Flutter 把元素搬过去而不是重建——
+  /// 输入栏的发送/导入守卫与输入框内容、时间流的滚动位置与「已见基线」都在
+  /// State 里，重建就会丢：前者导致同一条文本重复入库、草稿残留，后者导致
+  /// 每次跨越宽窄都强制滚底（§4 只把「打开/发送/切本」列为滚底触发）。
+  final _inputBarKey = GlobalKey();
+  final _streamKey = GlobalKey();
+
   /// 录音会话由页面持有：实现是「InputBar 的 State 在宽窄布局切换时被销毁」
   /// 这条坑的根治（M6 评审 P1-1）——录音中拖窗口不再丢录音条、不再占用麦克风。
   late final RecordingSession _recording;
@@ -150,7 +158,11 @@ class _HomePageState extends State<HomePage> {
   Widget get _content => IndexedStack(
         index: _searching ? 1 : 0,
         children: [
-          StreamView(store: widget.store, autoScroll: !_searching),
+          StreamView(
+            key: _streamKey, // 跨 720 搬家而不是重建：滚动位置与基线都要留
+            store: widget.store,
+            autoScroll: !_searching,
+          ),
           SearchResults(
             store: widget.store,
             query: _searchController.text,
@@ -204,6 +216,7 @@ class _HomePageState extends State<HomePage> {
                     _notice,
                     Expanded(child: _content),
                     InputBar(
+                      key: _inputBarKey, // 跨 720 搬家：守卫与输入框内容都要留
                       store: widget.store,
                       wide: true,
                       focusNode: _inputFocus,
@@ -282,6 +295,7 @@ class _HomePageState extends State<HomePage> {
           _notice,
           Expanded(child: _content),
           InputBar(
+            key: _inputBarKey, // 跨 720 搬家：守卫与输入框内容都要留
             store: widget.store,
             wide: false,
             drafts: _drafts,

@@ -14,9 +14,12 @@ import 'recording_session.dart';
 ///   停止即保存、丢弃不确认、时长 < 1s 视为误触丢弃。
 /// - 📷 导入图片（§5.3）：走文件对话框，一次一张，无预览确认。
 /// - 录音中断（系统抢占麦克风等）保存已录部分（§10）。
-/// 草稿暂存（仅内存）：跨笔记本切换、跨宽窄布局重建都不丢（ui-design §10）。
-/// 由 HomePage 持有——宽/窄两套布局各自构造 InputBar，State 会重建，
-/// 草稿若放在 State 里会在拖动窗口跨 720 时丢失（M5 评审 P3-1）。
+/// 草稿暂存（仅内存）：跨笔记本切换不丢，且是「发送完成该清哪段」的判定依据
+/// （ui-design §10）。由 HomePage 持有，**不随宽窄布局重建**。
+///
+/// 与页面的 GlobalKey 分工：GlobalKey 让 InputBar 的 State（发送/导入守卫、
+/// 输入框内容）跨 720 搬家而不是重建；DraftStore 则是**按笔记本**的那份草稿
+/// 真相——切本时 State 仍在，靠它换稿（M5 评审 P3-1 / M6 后复检 P2）。
 class DraftStore {
   final _byNotebook = <String, String>{};
 

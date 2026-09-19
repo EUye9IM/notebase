@@ -73,6 +73,33 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byTooltip('回到最新'), findsNothing); // 当前实现会残留
     });
+
+    // 回归（M6 后复检 P2-2）：跨 720 会重建 StreamView 的 State——滚动位置与
+    // `_lastNotebookId` 基线一起归零，新 State 首帧必判「切本了」而强制滚底，
+    // 于是把窗口最大化 / 拉窄都会丢掉阅读位置、并把「回到最新」按钮一并重置。
+    testWidgets('跨 720 重建后滚动位置与按钮状态保持（不强制滚底）', (tester) async {
+      final store = await storeWith(60);
+      await pumpApp(tester, store);
+
+      // 上翻 1200px：既超过宽屏一屏（按钮浮现），跨到更高的窄屏后距底
+      // 仍有近一屏多——「距底超过一屏」这条派生判定在两套布局下都成立。
+      await tester.drag(streamScrollable(), const Offset(0, 1200));
+      await tester.pumpAndSettle();
+      final before =
+          tester.state<ScrollableState>(streamScrollable()).position.pixels;
+      expect(find.byTooltip('回到最新'), findsOneWidget);
+
+      tester.view.physicalSize = const Size(400, 800); // 跨 720 → 窄屏布局
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.state<ScrollableState>(streamScrollable()).position.pixels,
+        before, // 当前实现：被强制滚到底（= maxScrollExtent）
+      );
+      expect(find.byTooltip('回到最新'), findsOneWidget); // 按钮状态随之保留
+    });
   });
 
   group('发送写盘窗口（P2-2 回归）', () {
@@ -130,6 +157,40 @@ void main() {
 
       expect(store.entries.single.text, 'AAA');
       expect(fieldText(), 'AAABBB'); // 当前实现被吞成空
+    });
+
+    // 回归（M6 后复检 P2-1）：宽/窄两套布局各自构造 InputBar，跨 720 会重建
+    // State——`_sending` 守卫随之归零，而新 State 会从 DraftStore 里把**还没
+    // 清空的原文**读回来，于是输入框残留刚发出去的文字、➤ 重新可用，再点一次
+    // 同一条文本入库两次（探针实测：写完 1 条，二次发送后 2 条）。
+    testWidgets('写盘窗口内拖动窗口跨 720：草稿不残留、不重复入库', (tester) async {
+      final store = await AppStore.load(SlowMemoryStorage());
+      await pumpApp(tester, store);
+
+      String fieldText() => tester
+          .widget<EditableText>(find.descendant(
+            of: find.byType(InputBar),
+            matching: find.byType(EditableText),
+          ))
+          .controller
+          .text;
+
+      await tester.enterText(find.byType(TextField), 'AAA');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_outlined)); // 开始写盘（50ms 窗口）
+      await tester.pump(const Duration(milliseconds: 10));
+
+      tester.view.physicalSize = const Size(400, 800); // 窗口内跨 720 → 窄屏
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      // 只出帧、不推进时钟：重建必须发生在写盘仍在途时，否则发送完成的清空
+      // 会先跑（旧 State 还没被销毁），竞态窗口就消失了。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300)); // 写盘完成
+      await tester.pumpAndSettle();
+
+      expect(fieldText(), isEmpty); // 曾经残留刚发出去的原文
+      expect(store.entries.length, 1); // 且残留的原文可以再发一次 → 重复入库
     });
   });
 
