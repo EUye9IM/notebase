@@ -6,6 +6,7 @@ import 'package:notebase/core/store.dart';
 import 'package:notebase/ui/input_bar.dart';
 import 'package:notebase/ui/app.dart';
 import 'package:notebase/ui/editor_sheet.dart';
+import 'package:notebase/ui/home.dart';
 import 'package:notebase/ui/search_view.dart';
 import 'package:notebase/ui/stream_view.dart';
 
@@ -378,6 +379,46 @@ void main() {
           tester.widget<FilledButton>(find.widgetWithText(FilledButton, '保存'));
       expect(save.onPressed, isNull);
       expect(store.entries.single.text, '别误删'); // 未被隐式删除
+    });
+
+    // 回归（M6 后评审 P1）：保存写盘在途时用户点遮罩关掉弹层，写盘完成后那句
+    // `if (mounted) Navigator.pop(context)` 会打到底下的 HomePage 上——弹层
+    // route 此时处于 `popping`（mounted 仍为 true，但已不是 present 栈顶），
+    // pop 于是选中下面那条路由 → 应用零路由、窗口空白。
+    testWidgets('保存写盘在途时关闭弹层，主界面不被弹掉', (tester) async {
+      final storage = GatedMemoryStorage();
+      final store = await AppStore.load(storage);
+      await store.addText('原文');
+      await pumpApp(tester, store);
+
+      await tester.tap(find.text('原文'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EntryEditorSheet), findsOneWidget);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(EntryEditorSheet),
+          matching: find.byType(TextField),
+        ),
+        '改后',
+      );
+      await tester.pump();
+
+      storage.hold(); // 让保存停在写盘上
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pump(); // 保存在途
+
+      // 用户在此期间用点遮罩 / 下滑 / Esc 关掉了弹层（直接 pop 弹层自己的
+      // 路由：等价于那三种手势，且不依赖遮罩命中坐标）。
+      Navigator.of(tester.element(find.byType(EntryEditorSheet))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50)); // 退场动画进行中
+
+      storage.release(); // 写盘完成 → 弹层尝试关闭
+      await tester.pumpAndSettle(); // 退场动画与路由销毁都要走完
+
+      expect(find.byType(HomePage), findsOneWidget); // 修复前：主界面被弹掉
+      expect(store.entries.single.text, '改后'); // 保存仍然生效
     });
   });
 

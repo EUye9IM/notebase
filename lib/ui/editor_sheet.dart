@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/model.dart';
 import '../core/store.dart';
+import 'sheet_nav.dart';
 
 /// 条目的编辑与删除交互（ui-design §8）。
 ///
@@ -62,17 +63,20 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
 
   Future<void> _save() async {
     if (!_canSave) return;
+    // 关闭动作绑定本弹层的路由：写盘期间用户可能已把弹层关掉（见 sheet_nav.dart）
+    final close = sheetCloser(context);
     await widget.store.updateEntryText(widget.entry.id, _controller.text);
-    if (mounted) Navigator.pop(context);
+    if (mounted) close();
   }
 
   Future<void> _delete() async {
+    final close = sheetCloser(context);
     final confirmed = await showDeleteEntryDialog(context);
     if (confirmed != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     final removed = await widget.store.deleteEntry(widget.entry.id);
     if (!mounted) return;
-    Navigator.pop(context);
+    close();
     messenger.showSnackBar(undoSnackBar(widget.store, removed));
   }
 
@@ -170,8 +174,9 @@ class FieldEditorSheetState extends State<FieldEditorSheet> {
 
   Future<void> _save() async {
     final text = _controller.text.trim();
+    final close = sheetCloser(context);
     await widget.onSave(text.isEmpty ? null : text); // 空 = 删除该字段
-    if (mounted) Navigator.pop(context);
+    if (mounted) close();
   }
 
   @override

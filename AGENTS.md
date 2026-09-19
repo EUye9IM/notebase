@@ -46,7 +46,7 @@ git -c core.sshCommand="ssh -F /dev/null" push origin main
 lib/
 ├── core/    纯 Dart，零 Flutter 依赖：model / store / listenable / storage
 ├── ui/      Flutter：app / home / stream_view / input_bar / notebook_list /
-│            search_view / editor_sheet / settings_view / listenable_bridge /
+│            search_view / editor_sheet / sheet_nav / settings_view / listenable_bridge /
 │            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）/
 │            media_importer（选图抽象）/ photo_view（缩略图与查看器）/ startup_views（启动视图）
 └── main.dart  入口：注入应用目录 → 加载 AppStore → 启动
@@ -117,6 +117,9 @@ lib/
   `existsSync` 分支渲染占位，不要依赖 `errorBuilder`。
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（已修）：
   撤销回退用例里当前本恰好是 default，无法区分「落到 default」与「落到当前本」。
+- **断言「路由被弹掉」要给足帧**：`pump(Duration(milliseconds: 400))` 只走**一帧**，
+  被 pop 的路由可能还没走完销毁、仍被 finder 找到，于是**假绿**；这种用例要用
+  `pumpAndSettle()`（本坑在弹层路由竞态的回归用例上真实踩到过）。
 
 ## 已知坑（并发与异步）
 
@@ -130,6 +133,13 @@ lib/
   而不是把用户拦在错误界面上（M5 评审 P2-4）。
 - UI 里 `await` 之后再用 `context`/`ScaffoldMessenger` 前先查 `mounted`；
   messenger 在 `await` **之前**捕获。
+- **`await` 之后关弹层，光查 `mounted` 不够**：弹层若已因点遮罩/下滑/Esc 进入退场动画，
+  路由处于 `popping`——`mounted` 仍为 true，但它已不是 navigator 的 present 栈顶
+  （Flutter 在 `_RouteLifecycle` 里把 `popping` 标为 "routes that are not present"），
+  `Navigator.pop` 会选中**下面那条**路由，把 HomePage 弹掉（实测：应用零路由、窗口空白；
+  弹层已整个销毁时还会抛「deactivated widget's ancestor」）。用 `ui/sheet_nav.dart` 的
+  `sheetCloser(context)`：await **之前**捕获本弹层的路由，之后只在 `route.isCurrent`
+  时 pop（M6 后评审 P1-1，回归用例在 `notebook_test.dart` / `search_test.dart`）。
 
 ## 已定的产品决策（不要擅自推翻）
 

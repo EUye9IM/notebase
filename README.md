@@ -105,9 +105,10 @@ notebase/
 ├── lib/
 │   ├── core/               # 纯 Dart：model / store / startup / listenable + storage 接口与 JSON 实现
 │   ├── ui/                 # Flutter：app / home / stream_view / input_bar / notebook_list /
-│   │                       #   search_view / editor_sheet / settings_view / startup_views /
-│   │                       #   media_recorder / media_player / recording_session /
-│   │                       #   media_importer / photo_view / listenable_bridge
+│   │                       #   search_view / editor_sheet / sheet_nav / settings_view /
+│   │                       #   startup_views / media_recorder / media_player /
+│   │                       #   recording_session / media_importer / photo_view /
+│   │                       #   listenable_bridge
 │   └── main.dart           # 入口：注入应用目录与平台能力 → 加载 AppStore → 启动
 ├── AGENTS.md               # 给编码 agent 的约定：架构铁律、命令、坑与检查清单
 ├── docs/

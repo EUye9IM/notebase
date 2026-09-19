@@ -38,6 +38,7 @@ lib/
     ├── photo_view.dart        # 照片缩略图与全屏查看器（§4/§8）
     ├── search_view.dart       # 原地搜索模式（§7）
     ├── editor_sheet.dart      # 条目编辑底 sheet 与字段编辑（§8）
+    ├── sheet_nav.dart         # 弹层安全关闭：await 之后只关自己的路由（§10）
     └── settings_view.dart     # 设置：主题
 ```
 
@@ -164,20 +165,6 @@ M5 评审（对抗性、只读、实测）发现 4 个 P2 与若干 P3，均已�
 
 P3-4（弱断言）同批处理：窄屏录入用例改走真实键盘路径并断言输入落点，换行类用例改名并补「原文不丢」断言。
 
-## 7. 待办与开放问题（登记，勿遗忘）
-
-- **无主媒体清理**：删除条目不删媒体文件（撤销窗口内仍需要它，见 `AppStore.deleteEntry`），
-  因此长期使用会留下不再被任何条目引用的 `media/*.ogg|png`。需要一个「清理无主媒体」的
-  入口或后台任务；`media/.tmp/*` 的孤儿同理（正常路径已清，异常退出可能残留）。
-  另：「归档成功但写盘失败」的孤儿已由 `addMedia`/`importPhoto` 的失败回滚处理（删除已归档文件
-  并回滚内存），但**进程被强杀**这类路径仍可能留文件。
-- 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）。
-- 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`。
-- JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）。
-- 输入栏草稿仅内存（重启即失），如需持久化再定。
-- **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
-  插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。
-
 ## 6.1 评审修复记录（M6）
 
 | 编号 | 问题 | 修法 | 回归用例 |
@@ -196,3 +183,41 @@ P3-4（弱断言）同批处理：窄屏录入用例改走真实键盘路径并�
 | P3-8 | 缩略图在 build 里做同步 stat | 存在性检查移入 State 缓存 | — |
 
 M6 全段评审还列出 41 条文档漂移，已按「同一次提交内同步文档」的约定清零。
+
+## 6.2 评审修复记录（M6 后：弹层路由归属）
+
+M6 之后的整体复检（三路只读深审 + 探针实测）确认一类跨文件的 P1 导航竞态，
+已修复并配「修复前会失败」的回归用例：
+
+| 编号 | 问题 | 修法 | 回归用例 |
+|---|---|---|---|
+| P1-1 | `await` 之后 `Navigator.pop(sheetContext)` 只查 `mounted`：弹层若已因点遮罩 / 下滑 / Esc 进入退场动画，路由处于 `popping`——`mounted` 仍为 true，但它已不是 navigator 的 present 栈顶（Flutter 把 `popping` 明确列为 "routes that are not present"），`Navigator.pop` 于是选中**下面那条**路由，把 HomePage 弹掉 → 应用零路由、窗口空白；弹层若已整个销毁，还会抛「Looking up a deactivated widget's ancestor」 | 新增 `ui/sheet_nav.dart`：`sheetCloser(context)` 在 await **之前**捕获本弹层的路由，之后只在 `route.isCurrent` 时 pop。`notebook_list` 的 onDone（切换 / 新建 / 删除）与 `editor_sheet` 的三处保存 / 删除全部改走它 | `notebook_test.dart`「窄屏：切换写盘在途时关闭弹层，主界面不被弹掉」、`search_test.dart`「保存写盘在途时关闭弹层，主界面不被弹掉」 |
+
+复现与验证记录（两处均实测）：
+
+- 修复前：`pumpAndSettle()` 之后 `find.byType(HomePage)` 为 **0**（主界面被弹掉）；修复后为 1，且弹层仍正常关闭、切换/保存本身照常生效。
+- 用 `GatedMemoryStorage`（`test/support/memory_storage.dart`）把「写盘在途」变成确定性窗口。
+  刻意用 `Completer` 而不是 `Future.delayed`：widget 测试跑在 fake-async 区，真实 Timer
+  不推进时钟就永不完成，`await store.xxx()` 这种不给 pump 的位置会直接**挂死**。
+- 另一个测试写法坑（已记入 `AGENTS.md`）：断言「路由被弹掉」时 `pump(Duration(milliseconds: 400))`
+  只走**一帧**，被 pop 的路由还没走完销毁、仍被 finder 找到 → **假绿**；必须用 `pumpAndSettle()`。
+  本轮回归用例最初就是这么假绿的，改用 settle 后才在修复前如实变红。
+
+## 7. 待办与开放问题（登记，勿遗忘）
+
+- **无主媒体清理**：删除条目不删媒体文件（撤销窗口内仍需要它，见 `AppStore.deleteEntry`），
+  因此长期使用会留下不再被任何条目引用的 `media/*.ogg|png`。需要一个「清理无主媒体」的
+  入口或后台任务；`media/.tmp/*` 的孤儿同理（正常路径已清，异常退出可能残留）。
+  另：「归档成功但写盘失败」的孤儿已由 `addMedia`/`importPhoto` 的失败回滚处理（删除已归档文件
+  并回滚内存），但**进程被强杀**这类路径仍可能留文件。
+- 真实 Linux IM 路径下的 Enter 发送（widget 测试走框架内 key 分发，不等于真实输入法）。
+- 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`。
+- JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）。
+- 输入栏草稿仅内存（重启即失），如需持久化再定。
+- **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
+  插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。
+- **整体复检登记项（尚未修，2026 复检报告）**：跨 720 重建导致发送守卫失效（可重复入库）
+  与滚动位置重置、音频缺失未渲染为不可播放（§10）、照片缩略图无 `cacheWidth`、
+  转写兜底未截断（§4）、写盘失败无回滚与无提示、启动扫描异常逃逸（`startup.dart:39`）、
+  `deleteEntries` 绕过写队列、多实例无数据目录锁。逐条详见复检报告，按批次修。
+

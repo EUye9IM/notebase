@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:notebase/core/model.dart';
@@ -105,5 +106,52 @@ class SlowMemoryStorage extends MemoryStorage {
   Future<void> saveEntries(String notebookId, List<Entry> entries) async {
     await Future<void>.delayed(delay);
     return super.saveEntries(notebookId, entries);
+  }
+}
+
+/// 可闸门化的内存 Storage：`hold()` 之后 `saveEntries` / `savePrefs` /
+/// `loadEntries` 会停在闸门上，直到 `release()`。
+///
+/// 用途：把「await 在途」这个窗口变成**确定性**的——路由竞态（await 之后
+/// pop 打到底下那条路由）需要「写盘未完成 + 弹层已在退场」同时成立，
+/// 用时间延迟无法稳定复现。
+///
+/// 刻意用 [Completer] 而不是 `Future.delayed`：widget 测试跑在 fake-async 区，
+/// 真实 Timer 只有推进时钟才会完成，在 `await store.xxx()` 这种不给 pump 的
+/// 位置会直接把测试挂死（本项目已因此踩过坑）。
+class GatedMemoryStorage extends MemoryStorage {
+  Completer<void>? _gate;
+
+  /// 关门：后续的保存/加载停住。
+  void hold() => _gate = Completer<void>();
+
+  /// 放行：等在闸门上的操作继续。
+  void release() {
+    final gate = _gate;
+    _gate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
+  Future<void> _waitAtGate() async {
+    final gate = _gate;
+    if (gate != null) await gate.future;
+  }
+
+  @override
+  Future<void> saveEntries(String notebookId, List<Entry> entries) async {
+    await _waitAtGate();
+    return super.saveEntries(notebookId, entries);
+  }
+
+  @override
+  Future<void> savePrefs(Prefs prefs) async {
+    await _waitAtGate();
+    return super.savePrefs(prefs);
+  }
+
+  @override
+  Future<List<Entry>> loadEntries(String notebookId) async {
+    await _waitAtGate();
+    return super.loadEntries(notebookId);
   }
 }

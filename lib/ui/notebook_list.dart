@@ -3,37 +3,38 @@ import 'package:flutter/material.dart';
 import '../core/model.dart';
 import '../core/store.dart';
 import 'listenable_bridge.dart';
+import 'sheet_nav.dart';
 
 /// 窄屏：点顶栏笔记本名弹出的切换弹层（ui-design §6）。
 Future<void> showNotebookSwitcher(BuildContext context, AppStore store) {
   final bridge = CoreListenableBridge(store);
   return showModalBottomSheet<void>(
     context: context,
-    builder: (sheetContext) => ListenableBuilder(
-      listenable: bridge,
-      builder: (context, _) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('笔记本'),
-            ),
-            Flexible(
-              child: NotebookRows(
-                store: store,
-                onDone: () => Navigator.pop(sheetContext),
+    builder: (sheetContext) {
+      // 关闭弹层的唯一出口：绑定到弹层自己的路由。切本 / 新建 / 删除都是
+      // await 之后才关弹层，那时用户可能已经点遮罩把弹层关掉了——直接
+      // `Navigator.pop(sheetContext)` 会弹掉底下的主界面（见 sheet_nav.dart）。
+      final close = sheetCloser(sheetContext);
+      return ListenableBuilder(
+        listenable: bridge,
+        builder: (context, _) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('笔记本'),
               ),
-            ),
-            const Divider(height: 1),
-            NewNotebookRow(
-              store: store,
-              onDone: () => Navigator.pop(sheetContext),
-            ),
-          ],
+              Flexible(
+                child: NotebookRows(store: store, onDone: close),
+              ),
+              const Divider(height: 1),
+              NewNotebookRow(store: store, onDone: close),
+            ],
+          ),
         ),
-      ),
-    ),
+      );
+    },
   ).whenComplete(bridge.dispose);
 }
 
