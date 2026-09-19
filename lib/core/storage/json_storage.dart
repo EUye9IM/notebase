@@ -36,12 +36,18 @@ class JsonFileStorage implements Storage {
     return jsonDecode(await file.readAsString());
   }
 
-  Future<void> _write(File file, Object? data) {
+  Future<void> _write(File file, Object? data) =>
+      _enqueueFor(file, () => _writeNow(file, data));
+
+  /// 把**针对同一路径**的操作排进同一条队列（写、删都走这里）。
+  ///
+  /// 删除必须排队：否则「删条目文件」会插到在飞的写入之前执行，写落地后文件
+  /// 又冒出来（僵尸文件，里面还留着已并入 default 的条目；复检 P2）。
+  Future<void> _enqueueFor(File file, Future<void> Function() action) {
     final key = file.absolute.path;
     final prev = _queues[key] ?? Future<void>.value();
-    // catchError：前序写入失败不得毒化队列，否则该文件此后永远写不进去。
-    final next =
-        prev.catchError((_) {}).then((_) => _writeNow(file, data));
+    // catchError：前序操作失败不得毒化队列，否则该文件此后永远写不进去。
+    final next = prev.catchError((_) {}).then((_) => action());
     _queues[key] = next;
     return next.whenComplete(() {
       // 队列排空即回收，避免 map 随笔记本数量无限增长。
@@ -154,43 +160,66 @@ class JsonFileStorage implements Storage {
   /// 应用得以以 default 启动，而不是抛 FormatException 崩在启动路径上。
   @override
   Future<List<String>> quarantineCorruptFiles() async {
-    final dir = Directory(baseDir);
-    if (!await dir.exists()) return const [];
+    final Directory dir;
+    final List<FileSystemEntity> entities;
+    try {
+      dir = Directory(baseDir);
+      if (!await dir.exists()) return const [];
+      entities = dir.listSync();
+    } on Object {
+      // 目录本身读不了（权限 / 只读挂载）：不该把启动拦下来（复检 P2）
+      return const [];
+    }
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final quarantined = <String>[];
-    for (final entity in dir.listSync()) {
-      if (entity is! File) continue;
-      final name = entity.uri.pathSegments.last;
-      final isData = name == 'notebooks.json' ||
-          name == 'prefs.json' ||
-          (name.startsWith('nb_') && name.endsWith('.json'));
-      if (!isData) continue;
+    for (final entity in entities) {
+      // 逐文件兜底：单个文件读不了 / 改不了名（EACCES、EIO、跨设备 rename…）
+      // 只跳过它继续扫其余文件。此前这类异常会一路逃到启动路径，把「有一个
+      // 读不了的文件」升级成「整个应用打不开」，违反 ui-design §10。
       try {
-        jsonDecode(await entity.readAsString());
-      } on FormatException {
-        // 语法坏了：无法解析
-        await _quarantine(entity, name, stamp, quarantined);
-        continue;
-      }
-      // 语法合法但结构不对（如未知条目 type）也要隔离——这类错误只有
-      // 走到模型解析时才暴露，所以用同一套「试解析」判断。
-      try {
-        if (name == 'notebooks.json') {
-          final raw = jsonDecode(await entity.readAsString()) as List;
-          for (final item in raw) {
-            Notebook.fromJson(item as Map<String, dynamic>);
-          }
-        } else if (name.startsWith('nb_')) {
-          final raw = jsonDecode(await entity.readAsString()) as List;
-          for (final item in raw) {
-            Entry.fromJson(item as Map<String, dynamic>);
-          }
-        }
+        await _scanFile(entity, stamp, quarantined);
       } on Object {
-        await _quarantine(entity, name, stamp, quarantined);
+        continue;
       }
     }
     return quarantined;
+  }
+
+  Future<void> _scanFile(
+    FileSystemEntity entity,
+    int stamp,
+    List<String> sink,
+  ) async {
+    if (entity is! File) return;
+    final name = entity.uri.pathSegments.last;
+    final isData = name == 'notebooks.json' ||
+        name == 'prefs.json' ||
+        (name.startsWith('nb_') && name.endsWith('.json'));
+    if (!isData) return;
+    // 只读一遍、解析一遍：启动期扫描此前对每个文件读两遍 decode 两遍
+    final Object? raw;
+    try {
+      raw = jsonDecode(await entity.readAsString());
+    } on FormatException {
+      // 语法坏了：无法解析
+      await _quarantine(entity, name, stamp, sink);
+      return;
+    }
+    // 语法合法但结构不对（如未知条目 type）也要隔离——这类错误只有
+    // 走到模型解析时才暴露，所以用同一套「试解析」判断。
+    try {
+      if (name == 'notebooks.json') {
+        for (final item in raw as List) {
+          Notebook.fromJson(item as Map<String, dynamic>);
+        }
+      } else if (name.startsWith('nb_')) {
+        for (final item in raw as List) {
+          Entry.fromJson(item as Map<String, dynamic>);
+        }
+      }
+    } on Object {
+      await _quarantine(entity, name, stamp, sink);
+    }
   }
 
   Future<void> _quarantine(
@@ -205,9 +234,11 @@ class JsonFileStorage implements Storage {
   }
 
   @override
-  Future<void> deleteEntries(String notebookId) async {
+  Future<void> deleteEntries(String notebookId) {
     final file = File('$baseDir/nb_$notebookId.json');
-    if (await file.exists()) await file.delete();
+    return _enqueueFor(file, () async {
+      if (await file.exists()) await file.delete();
+    });
   }
 
   @override

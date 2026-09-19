@@ -122,7 +122,50 @@ void main() {
       }
     });
 
-    test('隔离对健康数据无副作用', () async {
+    // 复检 P2 回归：deleteEntries 此前绕过按路径写队列，会插到在飞的写入之前
+  // 执行——写落地后文件又冒出来（僵尸文件，里面还留着已并入 default 的条目）。
+  test('删除与写入排同一条队列：写入在飞时删除不会被复活', () async {
+    final storage = JsonFileStorage(dir.path);
+    final entries = [
+      for (var i = 0; i < 1500; i++)
+        Entry(
+          id: '$i',
+          notebookId: 'x',
+          type: EntryType.text,
+          text: '条目 $i' * 20,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(1000 + i),
+        ),
+    ];
+    // 故意不 await：写入在飞的同时发起删除
+    final write = storage.saveEntries('x', entries);
+    final remove = storage.deleteEntries('x');
+    await Future.wait([write, remove]);
+
+    expect(File('${dir.path}/nb_x.json').existsSync(), isFalse);
+  });
+
+  // 复检 P2 回归（分层第二道）：逐文件兜底——单个文件读不了/改不了名只跳过它，
+  // 不把「有一个读不了的文件」升级成「整个应用打不开」。
+  test('单个文件读不了：跳过它继续扫，不抛给启动路径', () async {
+    final bad = File('${dir.path}/nb_bad.json')..writeAsStringSync('[]');
+    await Process.run('chmod', ['000', bad.path]);
+    // 前置条件：当前用户确实读不了（root 会忽略权限位，那种环境下这条验不了）
+    var unreadable = false;
+    try {
+      bad.readAsStringSync();
+    } on FileSystemException {
+      unreadable = true;
+    }
+    if (!unreadable) {
+      markTestSkipped('当前用户可读该文件（如 root），本条无法验证');
+      return;
+    }
+
+    final storage = JsonFileStorage(dir.path);
+    expect(await storage.quarantineCorruptFiles(), isEmpty); // 修复前：抛 FileSystemException
+  });
+
+  test('隔离对健康数据无副作用', () async {
       await storage.saveNotebooks([Notebook.createDefault()]);
       await storage.saveEntries('default', [
         Entry(

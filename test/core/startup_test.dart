@@ -115,4 +115,19 @@ void main() {
       expect(result.store.currentNotebookId, Notebook.defaultId);
     });
   });
+
+  // 复检 P2 回归：扫描本身失败（目录读不了 / 只读挂载 / 改名失败）此前会一路
+  // 逃到调用方，把「有一个读不了的文件」升级成「整个应用打不开」。
+  group('扫描失败不拦启动', () {
+    test('隔离自身抛错：照常以已加载数据启动', () async {
+      final storage = MemoryStorage()..quarantineThrows = true;
+      final store = await AppStore.load(storage);
+      await store.addText('先写一条');
+
+      final result = await loadStoreResilient(storage);
+
+      expect(result.quarantined, isEmpty);
+      expect(result.store.entries.single.text, '先写一条');
+    });
+  });
 }

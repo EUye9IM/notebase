@@ -97,8 +97,16 @@ class MemoryStorage implements Storage {
   /// 默认不隔离；测试可赋值以模拟「坏文件已隔离」的返回。
   List<String> quarantineResult = const [];
 
+  /// 置 true 让隔离本身失败：用于验证「扫描失败也不拦启动」（复检 P2）。
+  bool quarantineThrows = false;
+
   @override
-  Future<List<String>> quarantineCorruptFiles() async => quarantineResult;
+  Future<List<String>> quarantineCorruptFiles() async {
+    if (quarantineThrows) {
+      throw const FileSystemException('数据目录读不了（模拟）');
+    }
+    return quarantineResult;
+  }
 }
 
 /// 带写延迟的内存 Storage：模拟真实磁盘写窗口，用于发送重入类测试。

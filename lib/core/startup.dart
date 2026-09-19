@@ -36,7 +36,13 @@ Future<StoreLoadResult> loadStoreResilient(Storage storage) async {
   // 启动期全量扫描：非当前笔记本的条目文件是**惰性加载**的，首次 load 不会
   // 暴露它们的损坏（ui-design §10 把 nb_*.json 也列为启动期损坏情形）。
   // 不扫的话，切到那个笔记本才会抛异常，且该笔记本永久打不开。
-  quarantined.addAll(await storage.quarantineCorruptFiles());
+  try {
+    quarantined.addAll(await storage.quarantineCorruptFiles());
+  } on Object {
+    // 扫描本身失败（目录读不了、只读挂载、改名失败…）不拦启动：已经加载到的
+    // 数据照常可用，坏文件留给下次启动再处理。此前这类异常会一路逃到调用方，
+    // 把「有一个读不了的文件」升级成「整个应用打不开」（复检 P2 / ui-design §10）。
+  }
   return StoreLoadResult(
     store: store,
     quarantined: quarantined.toList(),
