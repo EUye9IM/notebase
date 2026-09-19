@@ -57,7 +57,9 @@ lib/
    `CoreListenable`/`CoreChangeNotifier`，UI 侧经 `listenable_bridge.dart` 适配。
 2. **依赖单向**：`ui → core`。平台能力（应用目录、剪贴板等）由 UI 取得后**注入** core，
    core 不感知平台。
-3. **`Storage` 接口收口所有持久化**：换 SQLite（M7）只换实现，不动上层。
+3. **`Storage` 接口收口所有持久化与媒体落点**（路径、存在性、归档/删除）：
+   换 SQLite（M7）只换实现，不动上层；UI 不直接摸文件系统（用 `store.mediaPath` /
+   `store.mediaExists`）。
 4. **偏好也走 core 的 storage**（`prefs.json`），不要引入 `shared_preferences`。
 5. **测试分层**：`test/core/**` 不 pump widget；`test/ui/**` 才是 widget 测试。
 
@@ -157,8 +159,9 @@ lib/
   （撤销窗口内还要用），无主媒体清理见 `dev-plan §7`；长按菜单按类型给项
   （文本=复制/编辑/删除；录音=复制/编辑转写/编辑摘要/删除；照片=复制/编辑摘要/删除，
   有可复制文字才出现「复制」）。
-- 照片渲染：缩略图先做**同步存在性检查**再决定是否发起解码（缺失即占位「图片已丢失」，
-  §10）；点击进全屏查看器，点空白关闭。导入用 `file_selector`，**只复制不移动**用户原图。
+- 照片渲染：缩略图先做**同步存在性检查**（`store.mediaExists`）再决定是否发起解码，缺失即占位
+  「图片已丢失」（§10）；解码按目标显示尺寸传 `cacheWidth`，不整幅解码原图。点击进全屏查看器，
+  点空白关闭。导入用 `file_selector`，**只复制不移动**用户原图。
 
 ## 里程碑节奏
 

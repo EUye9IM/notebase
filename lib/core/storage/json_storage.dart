@@ -101,6 +101,9 @@ class JsonFileStorage implements Storage {
   String mediaPath(String relativePath) => _mediaFile(relativePath).path;
 
   @override
+  bool mediaExists(String relativePath) => _mediaFile(relativePath).existsSync();
+
+  @override
   Future<void> copyIntoMedia({
     required String sourceAbsolutePath,
     required String relativePath,

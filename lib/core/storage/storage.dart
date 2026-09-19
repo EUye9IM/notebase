@@ -21,6 +21,12 @@ abstract class Storage {
   /// 媒体文件的绝对路径（**同步**、不创建目录）：供渲染缩略图等同步取用。
   String mediaPath(String relativePath);
 
+  /// 媒体文件是否存在（**同步**、不创建目录）。
+  ///
+  /// 与 [mediaPath] 同属「媒体落点」职责：由实现回答（文件型实现直接 stat，
+  /// 内存实现查自己的登记表），渲染层据此决定占位，不直接摸文件系统。
+  bool mediaExists(String relativePath);
+
   /// 把**外部**文件复制进媒体目录（导入用户图片用）。
   ///
   /// 只复制、绝不移动：用户的原图必须留在原处（与 [adoptMedia] 的区别）。

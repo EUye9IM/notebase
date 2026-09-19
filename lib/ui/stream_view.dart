@@ -313,6 +313,16 @@ class EntryTile extends StatelessWidget {
     return null;
   }
 
+  /// 摘要位显示的是**转写兜底**（录音无摘要 → 转写首行）。§4 要求它截断：
+  /// 转写可能很长且不含换行，不截断就会把整段铺进流里，违背「转写全文不进
+  /// 时间流」的用意。摘要本身不截断——那是用户写的展示面，按正文样式整段渲染。
+  bool get _captionIsTranscriptFallback {
+    final summary = entry.summary?.trim();
+    return (summary == null || summary.isEmpty) &&
+        entry.type == EntryType.audio &&
+        (entry.transcript?.trim().isNotEmpty ?? false);
+  }
+
   void _handleTap(BuildContext context) {
     switch (entry.type) {
       case EntryType.text:
@@ -321,15 +331,26 @@ class EntryTile extends StatelessWidget {
         // §8：音频条目的点按 = 列表内联播放/暂停。
         // 不可播放时（未注入播放能力 / 文件已丢失）不能 toggle：否则会把行
         // 标成「播放中」而其实毫无声音，进度定时器还空转（评审 P3-1）。
+        // 「文件已丢失」要真的查文件——只看 `file != null` 会让缺失的录音
+        // 渲染成可播放、点下去静默失败（§10，复检 P2）。
         final playback = PlaybackScope.read(context);
-        if (playback != null && playback.available && entry.file != null) {
+        if (playback != null && playback.available && _audioFileExists) {
           playback.toggle(entry);
         }
       case EntryType.photo:
         final file = entry.file;
-        if (file != null) showPhotoViewer(context, store.mediaPath(file));
+        if (file != null) {
+          showPhotoViewer(context, store: store, relativePath: file);
+        }
 
     }
+  }
+
+  /// 录音文件是否真的在：§10 要求媒体缺失时音频行渲染为**不可播放**。
+  /// 只在用户点按（手势路径）与 State 初始化时做检查，不在每帧 build 里做。
+  bool get _audioFileExists {
+    final file = entry.file;
+    return file != null && store.mediaExists(file);
   }
 
   Future<void> _copy(BuildContext context) async {
@@ -373,7 +394,7 @@ class EntryTile extends StatelessWidget {
                   entry.text ?? '',
                   style: theme.textTheme.bodyLarge,
                 ),
-              EntryType.audio => _AudioRow(entry: entry),
+              EntryType.audio => _AudioRow(store: store, entry: entry),
               EntryType.photo => _PhotoRow(store: store, entry: entry),
             },
             if (caption != null) ...[
@@ -383,6 +404,11 @@ class EntryTile extends StatelessWidget {
                 onTap: () => _editCaption(context),
                 child: Text(
                   caption,
+                  // 转写兜底要截断（§4）；摘要按正文样式整段渲染。
+                  maxLines: _captionIsTranscriptFallback ? 2 : null,
+                  overflow: _captionIsTranscriptFallback
+                      ? TextOverflow.ellipsis
+                      : null,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -429,26 +455,50 @@ String _timeLabel(DateTime t) {
 }
 
 /// 音频行（ui-design §4）：`[▶/⏸] 时长 进度条`，播放中显示进度。
-class _AudioRow extends StatelessWidget {
-  const _AudioRow({required this.entry});
+/// 媒体文件缺失时渲染为**不可播放**（§10）：图标走次要色、点按无反应，
+/// 而不是让用户点了才发现没声音。
+class _AudioRow extends StatefulWidget {
+  const _AudioRow({required this.store, required this.entry});
 
+  final AppStore store;
   final Entry entry;
 
-  static String durationLabel(double? seconds) {
+  @override
+  State<_AudioRow> createState() => _AudioRowState();
+}
+
+class _AudioRowState extends State<_AudioRow> {
+  static String _durationLabel(double? seconds) {
     if (seconds == null) return '--:--';
     final d = Duration(milliseconds: (seconds * 1000).round());
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
   }
 
+  /// 存在性检查缓存在 State 里（同 PhotoThumbnail，评审 P3-8）：时间流没有
+  /// 虚拟化，放在 build 里会让每次 store 通知都对所有音频行做一遍同步检查。
+  late bool _exists = _checkExists();
+
+  bool _checkExists() {
+    final file = widget.entry.file;
+    return file != null && widget.store.mediaExists(file);
+  }
+
+  @override
+  void didUpdateWidget(_AudioRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entry.file != widget.entry.file) _exists = _checkExists();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
     // 依赖 PlaybackScope：只有音频行会随播放进度重建（文本行不依赖）。
     final playback = PlaybackScope.maybeOf(context);
     final playing = playback?.isPlaying(entry.id) ?? false;
     final progress = playback?.progressFor(entry) ?? 0;
     final colors = Theme.of(context).colorScheme;
-    final playable = playback != null && playback.available && entry.file != null;
+    final playable = playback != null && playback.available && _exists;
 
     return Row(children: [
       Icon(
@@ -458,7 +508,7 @@ class _AudioRow extends StatelessWidget {
       ),
       const SizedBox(width: 8),
       Text(
-        durationLabel(entry.duration),
+        _durationLabel(entry.duration),
         style: Theme.of(context).textTheme.labelMedium,
       ),
       const SizedBox(width: 12),
@@ -491,6 +541,6 @@ class _PhotoRow extends StatelessWidget {
         Text('图片已丢失', style: Theme.of(context).textTheme.labelMedium),
       ]);
     }
-    return PhotoThumbnail(path: store.mediaPath(file));
+    return PhotoThumbnail(store: store, relativePath: file);
   }
 }

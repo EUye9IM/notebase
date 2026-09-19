@@ -136,9 +136,28 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    // 复检 P2：缩略图必须按**目标显示尺寸**解码。不传 cacheWidth 会整幅解码
+    // 原图（12MP ≈ 48MB 位图），叠加「时间流无虚拟化」＝首帧为所有照片一起
+    // 发起解码，ImageCache 反复淘汰重解码。
+    testWidgets('缩略图按显示尺寸解码（cacheWidth），不整幅解码原图', (tester) async {
+      final importer = FakeMediaImporter(path: pickedImage('IMG_cache.png'));
+      await pumpApp(tester, importer: importer);
+      await tester.tap(importButton());
+      await tester.pumpAndSettle();
+
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<ResizeImage>()); // 没传 cacheWidth 时是 FileImage
+      final box = tester.getSize(find.byType(Image));
+      expect(
+        (image.image as ResizeImage).width,
+        (box.width * tester.view.devicePixelRatio).round(),
+      );
+    });
+
     testWidgets('点按缩略图打开全屏查看器，点空白关闭（§8）', (tester) async {
       await addPhotoWithMissingFile();
       await pumpApp(tester);
+
 
       await tester.tap(find.byType(PhotoThumbnail));
       await tester.pumpAndSettle();

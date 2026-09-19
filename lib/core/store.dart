@@ -269,6 +269,10 @@ class AppStore extends CoreChangeNotifier {
   /// 媒体文件的绝对路径（同步、不建目录）：供缩略图等渲染路径使用。
   String mediaPath(String relativePath) => _storage.mediaPath(relativePath);
 
+  /// 媒体文件是否存在（同步）：渲染层据此决定「不可播放 / 占位」（ui-design §10），
+  /// 由 Storage 回答，UI 不直接摸文件系统。
+  bool mediaExists(String relativePath) => _storage.mediaExists(relativePath);
+
   /// 丢弃尚未登记的媒体文件（录音点 ✗、时长过短，ui-design §5.2）。
   Future<void> discardMedia(String relativePath) =>
       _storage.deleteMedia(relativePath);

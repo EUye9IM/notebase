@@ -60,6 +60,11 @@ class MemoryStorage implements Storage {
   @override
   String mediaPath(String relativePath) => '/memory/$relativePath';
 
+  /// 与 [mediaPath] 配套：内存「磁盘」里登记过就算存在，删掉即消失——
+  /// 渲染层的「缺失占位 / 不可播放」分支因此可以在不碰真实文件的前提下被测。
+  @override
+  bool mediaExists(String relativePath) => media.containsKey(relativePath);
+
   @override
   Future<void> copyIntoMedia({
     required String sourceAbsolutePath,

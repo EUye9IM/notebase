@@ -109,6 +109,43 @@ void main() {
       await pumpApp(tester);
       expect(find.text('--:--'), findsOneWidget);
     });
+
+    // 复检 P2（§4）：转写全文不进时间流——兜底位只显示首行且要截断，
+    // 否则一段没有换行的转写会把整段铺进流里。摘要不截断（用户写的展示面）。
+    testWidgets('转写兜底截断，摘要不截断（§4）', (tester) async {
+      final long = 'A' * 300; // 没有任何换行
+      await addAudio(duration: 3, transcript: long);
+      await pumpApp(tester);
+
+      final fallback = tester.widget<Text>(find.text(long));
+      expect(fallback.maxLines, 2);
+      expect(fallback.overflow, TextOverflow.ellipsis);
+
+      await store.updateEntrySummary(store.entries.single.id, long);
+      await tester.pumpAndSettle();
+      final summary = tester.widget<Text>(find.text(long));
+      expect(summary.maxLines, isNull);
+      expect(summary.overflow, isNull);
+    });
+
+    // 复检 P2（§10）：录音文件丢失时行必须渲染为**不可播放**——只看
+    // `file != null` 会让它看起来能播，点下去既没声音也没提示。
+    testWidgets('录音文件缺失：渲染为不可播放，点按不发起播放', (tester) async {
+      final entry = await addAudio(duration: 3, summary: '文件已丢失');
+      await store.discardMedia(entry.file!); // 文件没了（外部删除 / 清理）
+      final player = FakeMediaPlayer();
+      await pumpApp(tester, player: player);
+
+      final colors =
+          Theme.of(tester.element(find.byType(StreamView))).colorScheme;
+      final icon = tester.widget<Icon>(find.byIcon(Icons.play_circle_filled));
+      expect(icon.color, colors.outlineVariant); // 次要色 = 不可播放
+
+      await tester.tap(find.byIcon(Icons.play_circle_filled));
+      await tester.pumpAndSettle();
+      expect(player.playedPaths, isEmpty);
+      expect(find.byIcon(Icons.pause_circle_filled), findsNothing);
+    });
   });
 
   group('内联播放（§8）', () {
