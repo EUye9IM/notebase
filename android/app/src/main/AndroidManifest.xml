@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 录音（ui-design §5.2）：record_android 需要 RECORD_AUDIO；
+         MODIFY_AUDIO_SETTINGS 供蓝牙耳机等设备使用（record_android README 标为可选）。
+         照片导入走 file_selector 的系统选图器（SAF），不需要存储权限。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <application
         android:label="notebase"
         android:name="${applicationName}"

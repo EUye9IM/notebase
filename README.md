@@ -11,7 +11,7 @@
 
 | 层 | 选型 | 说明 |
 |----|------|------|
-| UI | Flutter | Linux 桌面端先行；Android 工程已预留，多平台后置 |
+| UI | Flutter | Linux 桌面端先行；Android 工程可构建 APK（M8 的交互适配与真机核对未做） |
 | 核心 | 纯 Dart，零 Flutter 依赖 | 模型 / 存储 / 搜索 / 状态，全部在 `lib/core/`，可脱离 Flutter 测试与复用 |
 | 存储 | JSON 文件（`Storage` 接口收口） | `notebooks.json` + `nb_<id>.json` + `prefs.json` + `media/<条目 id>.<ext>`；SQLite 迁移后置（M7） |
 | 状态 | 自实现最小 `Listenable` | 不依赖 flutter/foundation，core 保持纯净 |
@@ -88,7 +88,8 @@
 
 - Flutter SDK（stable）
 - Linux 桌面构建需 GTK / Ninja 工具链（`flutter doctor` 自查）
-- Android 后置（SDK 未装，工程已预留）
+- Android：可构建（debug / release APK），工具链装在用户目录，见 `AGENTS.md` 的环境说明；
+  键盘/IME 适配、应用内取景器与真机核对属 M8
 
 ### 快速启动
 
@@ -115,7 +116,7 @@ notebase/
 │   ├── ui-design.mdx       # 交互设计（含 §11 操作步数验收表）
 │   └── dev-plan.md         # 开发计划（M1–M5 文本 + M6 多媒体分段）
 ├── test/                   # core 单测（纯 Dart，不 pump widget）+ ui widget 测试
-├── android/                # Android 工程（后置，已预留）
+├── android/                # Android 工程（可构建 APK；M8 未做交互适配）
 ├── linux/                  # Linux 桌面工程（windows / macos 已裁剪，需要时 flutter create 补回）
 └── pubspec.yaml
 ```

@@ -37,6 +37,27 @@ flutter build linux --debug
 git -c core.sshCommand="ssh -F /dev/null" push origin main
 ```
 
+Android 构建（工具链装在用户目录，**不需要 root**；本机无系统 JDK）：
+
+```bash
+export JAVA_HOME="$HOME/.local/jdk21"      # Temurin 21（用户态解包）
+export ANDROID_HOME="$HOME/Android/Sdk"    # cmdline-tools / platform-tools / platforms;android-36 / build-tools;36.0.0
+export PATH="$JAVA_HOME/bin:$PATH:/opt/dev/flutter/bin"
+
+flutter build apk --debug                  # → build/app/outputs/flutter-apk/app-debug.apk（三 ABI，154MB）
+flutter build apk --release                # → 51MB，用模板的 debug 签名：能装真机，不能发布
+```
+
+- **首次构建必须先预置 Gradle 发行包**：`services.gradle.org` 会把请求 307 跳到 GitHub releases
+  （本机不通）→ 手动下 `https://mirrors.cloud.tencent.com/gradle/gradle-<ver>-all.zip`，放进
+  `~/.gradle/wrapper/dists/gradle-<ver>-all/<hash>/`，解包并 `touch gradle-<ver>-all.zip.ok`。
+  **不要把镜像写进仓库的 `gradle-wrapper.properties`**（别把本机网络环境固化进仓库）。
+- `flutter doctor` 报 `maven.google.com` 连不上是**假警报**：Gradle 的 `google()` 实际用
+  `https://dl.google.com/dl/android/maven2`，本机可达 → 不需要配 Maven 镜像。
+- `INTERNET` 权限只在 debug 清单里（Flutter 调试要连 VM service）；release 清单没有——
+  将来接远程 AI 必须在 `src/main/AndroidManifest.xml` 显式声明。
+- **未接真机**（`adb devices` 为空）：APK 能构建，Android 上的运行时行为尚未验证。
+
 应用数据目录（调试用，JSON 可直接看/改）：
 `~/.local/share/com.example.notebase/` → `notebooks.json`、`nb_<id>.json`、`prefs.json`。
 

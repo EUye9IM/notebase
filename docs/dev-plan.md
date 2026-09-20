@@ -107,7 +107,7 @@ lib/
 |---|---|
 | M6 多媒体 | **分段进行中**：M6a 核心媒体层 ✅ / M6b 录音 UI ✅ / M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅。原计划：录音（`record`，Linux 实现已存在）、播放（`audioplayers`）、拍照与相册导入（`image_picker` Linux 桌面支持有限，届时评估 `file_picker` 替代）；媒体文件管理；转写/摘要手动编辑入口 |
 | M7 SQLite | `sqflite` + `sqflite_common_ffi`，`Storage` 换实现；FTS5 |
-| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建 |
+| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建。**构建已打通，见 §6.11** |
 | M9 AI | Phase 3：自动转写→摘要、图片描述、语义搜索；接入点已在模型与 UI 预留 |
 
 ## 4. 风险与开放问题
@@ -295,6 +295,19 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
   「避免在普通删除路径上做不可逆的文件删除」。
 - `default` 的批量销毁走「清空」（§6.8），它本来就明确写着不可撤销。
 
+## 6.11 Android 构建打通（M8 前置）
+
+只做了「能构建」这一步，交互适配与真机核对仍未开始：
+
+| 项 | 结果 |
+|---|---|
+| 工具链 | 用户态安装（无 root）：JDK 21 Temurin → `~/.local/jdk21`；Android SDK → `~/Android/Sdk`（cmdline-tools、platform-tools、platforms;android-36、build-tools;36.0.0）。AGP 9.1.0 / Kotlin 2.4.0 / Gradle 9.3.1 是模板自带版本 |
+| 仓库改动 | `android/app/src/main/AndroidManifest.xml` 声明 `RECORD_AUDIO`（record_android 必需）与 `MODIFY_AUDIO_SETTINGS`（蓝牙设备用，可选）；照片导入走 file_selector 的 SAF，不需要存储权限 |
+| 产物 | `flutter build apk --debug` → 154MB（arm64-v8a / armeabi-v7a / x86_64）；`--release` → 51.5MB（模板 debug 签名） |
+| 验证 | 合并后的清单：minSdk 24 / targetSdk 36 / 两项录音权限就位；构建日志无警告。**未接真机**（`adb devices` 为空），Android 上的运行时行为未验证 |
+| 环境坑 | `services.gradle.org` 307 → GitHub releases（本机不通）→ 预置 wrapper 缓存（腾讯镜像）；`flutter doctor` 的 `maven.google.com` 探测失败是假警报（Gradle 走 dl.google.com，可达）。详见 AGENTS.md |
+| M8 仍缺 | 输入栏键盘 / IME 适配（Android 上 Enter 该换行还是发送、软键盘顶起布局）、应用内取景器（camera 插件）、真机核对、release 签名（keystore） |
+
 ## 7. 待办与开放问题（登记，勿遗忘）
 
 - **无主媒体清理**：删除条目不删媒体文件（避免普通删除路径上做不可逆的文件删除，见 `AppStore.deleteEntry`），
@@ -308,6 +321,7 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
 - 输入栏草稿仅内存（重启即失），如需持久化再定。
 - **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
   插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。
+  Android 侧同理：APK 能构建（§6.11），但没有设备连过，运行时行为完全未验证。
 - **多实例无数据目录锁**（复检登记，未修）：写队列与唯一 tmp 名都是**进程内**的，
   两个实例同时开着会各自全量覆盖写，后写覆盖前写 → 一边新记的条目静默消失
   （`linux/runner/my_application.cc` 用的是 `G_APPLICATION_NON_UNIQUE`）。
