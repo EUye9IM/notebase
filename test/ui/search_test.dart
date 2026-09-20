@@ -14,7 +14,7 @@ import '../support/memory_storage.dart';
 
 /// M4 验收（ui-design §7 / §8 / §11）：
 /// 搜索 = 1 步进入 + 输入即过滤（限当前笔记本、结果倒序）；
-/// 删除 = 长按 → 删除 → 确认（3 步），并支持 5s 撤销。
+/// 删除 = 长按 → 删除 → 确认（3 步）；v1.1 起确认后即删，不再有撤销条。
 void main() {
   Future<AppStore> storeWith(List<String> texts) async {
     final store = await AppStore.load(MemoryStorage());
@@ -427,8 +427,10 @@ void main() {
     });
   });
 
-  group('删除与撤销', () {
-    testWidgets('长按 → 删除 → 确认（3 步），并可用 5s 撤销找回', (tester) async {
+  group('删除', () {
+    // v1.1 产品决策：删除仍要确认，但确认后即删——不再有 toast 与撤销条
+    // （撤销引入的复杂度没换来等价收益）。这条同时守住「不要偷偷把条加回来」。
+    testWidgets('长按 → 删除 → 确认（3 步），确认后即删且无撤销条', (tester) async {
       final store = await storeWith(['要删掉的', '留着的']);
       await pumpApp(tester, store);
 
@@ -440,31 +442,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(store.entries.single.text, '留着的');
-      expect(find.text('已删除'), findsOneWidget);
-      expect(find.text('撤销'), findsOneWidget);
-
-      await tester.tap(find.text('撤销'));
-      await tester.pumpAndSettle();
-      expect(store.entries.map((e) => e.text), ['要删掉的', '留着的']);
-    });
-
-    // 回归：Flutter 3.47 起带 action 的 SnackBar 默认 persist=true（永不自动
-    // 关闭），撤销条会一直挂在底部。必须显式 persist: false 让 5s 生效（§8）。
-    testWidgets('撤销条 5s 后自动消失（persist 回归）', (tester) async {
-      final store = await storeWith(['要删掉的']);
-      await pumpApp(tester, store);
-
-      await tester.longPress(find.text('要删掉的'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('删除'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, '删除'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('撤销'), findsOneWidget); // 撤销窗口内可见
-      await tester.pump(const Duration(seconds: 6)); // 越过 5s 窗口
-      await tester.pumpAndSettle();
-      expect(find.text('撤销'), findsNothing); // 自动关闭，不长期占位
+      expect(find.text('要删掉的'), findsNothing);
+      expect(find.text('已删除'), findsNothing); // 没有「删除成功」提示条
+      expect(find.text('撤销'), findsNothing); // 也没有撤销入口
     });
 
     testWidgets('取消确认则不删除', (tester) async {

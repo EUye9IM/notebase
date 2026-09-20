@@ -102,64 +102,12 @@ void main() {
       expect(again.entries.single.text, '新');
     });
 
-    test('删除并持久化，返回可回滚快照（§8 撤销）', () async {
+    test('删除并持久化（v1.1 起不再返回可回滚快照）', () async {
       final s = await reload();
       final e = await s.addText('待删除');
-      final removed = await s.deleteEntry(e.id);
-      expect(removed.id, e.id);
-      expect(removed.text, '待删除');
+      await s.deleteEntry(e.id);
       expect(s.entries, isEmpty);
       expect((await reload()).entries, isEmpty);
-    });
-
-    test('撤销删除：复位到原位置并持久化', () async {
-      await storage.saveEntries('default', [
-        textEntry('a', '第一条', created: 1000),
-        textEntry('b', '第二条', created: 2000),
-        textEntry('c', '第三条', created: 3000),
-      ]);
-      final s = await reload();
-      final removed = await s.deleteEntry('b');
-      expect(s.entries.map((e) => e.id), ['a', 'c']);
-
-      await s.restoreEntry(removed);
-      expect(s.entries.map((e) => e.id), ['a', 'b', 'c']); // 按时间复位
-      expect((await reload()).entries.map((e) => e.id), ['a', 'b', 'c']);
-    });
-
-    // 复检补测：§8 的默认路径是「放回**其原本所属**的笔记本」，
-    // 只有原笔记本在撤销窗口内被删掉才落到当前笔记本。这条此前没有用例，
-    // 变异「restoreEntry 恒落当前本」全套仍绿。
-    test('撤销：原笔记本仍在时放回原笔记本，不落到当前笔记本', () async {
-      final s = await reload();
-      final a = await s.createNotebook('A'); // 建完即切到 A
-      final entry = await s.addText('A 里的条目');
-      final removed = await s.deleteEntry(entry.id);
-      final b = await s.createNotebook('B'); // 切到 B，A 仍在
-
-      await s.restoreEntry(removed);
-
-      expect(await s.entryCountOf(a.id), 1); // 回到 A
-      expect(await s.entryCountOf(b.id), 0); // 不是当前本 B
-      expect(s.currentNotebookId, b.id); // 撤销不改变当前笔记本
-      final reloaded = await reload();
-      expect(await reloaded.entryCountOf(a.id), 1); // 归属也落盘了
-      expect(reloaded.entries, isEmpty); // B 仍是空的
-    });
-
-    test('撤销时原笔记本已删除：落到当前笔记本（而非 default）并重写归属', () async {
-      final s = await reload();
-      final work = await s.createNotebook('工作');
-      await s.addText('工作里的条目');
-      final removed = await s.deleteEntry(s.entries.single.id);
-      await s.deleteNotebook(work.id); // 撤销窗口内删掉了该笔记本
-      final other = await s.createNotebook('灵感'); // 当前 = 灵感，与 default 区分开
-
-      await s.restoreEntry(removed);
-      expect(s.currentNotebookId, other.id);
-      expect(s.entries.single.text, '工作里的条目');
-      expect(s.entries.single.notebookId, other.id); // 落到「当前」而非 default
-      expect(await storage.loadEntries(Notebook.defaultId), isEmpty);
     });
 
     test('删除 / 编辑按条目归属定位，不限于当前笔记本', () async {
@@ -172,19 +120,9 @@ void main() {
       await s.updateEntryText(entry.id, '改过的条目');
       expect((await storage.loadEntries(work.id)).single.text, '改过的条目');
 
-      final removed = await s.deleteEntry(entry.id);
-      expect(removed.id, entry.id);
+      await s.deleteEntry(entry.id);
       expect(await storage.loadEntries(work.id), isEmpty);
       expect(s.entries, isEmpty); // 当前笔记本未受影响
-    });
-
-    test('撤销是幂等的', () async {
-      final s = await reload();
-      final e = await s.addText('只此一条');
-      final removed = await s.deleteEntry(e.id);
-      await s.restoreEntry(removed);
-      await s.restoreEntry(removed);
-      expect(s.entries, hasLength(1));
     });
 
     test('未知条目 id 抛错', () async {

@@ -222,7 +222,7 @@ void main() {
     });
 
     // P3-4 回归：开录时的笔记本若在录音期间被删，不能丢录音、也不能把内部 id
-    // 抛进文案——落到当前笔记本（与 §8 撤销回退同语义）。
+    // 抛进文案——落到当前笔记本（目标本不存在时落到当前笔记本）。
     testWidgets('录音期间开录的笔记本被删除：落到当前笔记本而不是丢录音', (tester) async {
       final storage = MemoryStorage();
       final store = await AppStore.load(storage);

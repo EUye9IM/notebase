@@ -7,7 +7,8 @@ import 'sheet_nav.dart';
 /// 条目的编辑与删除交互（ui-design §8）。
 ///
 /// 文本条目：底 sheet = textarea + 「保存 / 删除」；保存无确认且不改 createdAt。
-/// 删除：确认弹窗（破坏性操作例外）→ toast + 5s 撤销。
+/// 删除：确认弹窗（破坏性操作例外）→ 即删。v1.1 起不再有撤销条：
+/// 撤销引入的复杂度（快照、归属回退、5s 计时、persist 坑）没换来等价收益。
 
 /// 打开文本条目编辑底 sheet。
 Future<void> showEntryEditor(
@@ -84,10 +85,10 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
     final confirmed = await showDeleteEntryDialog(context);
     if (confirmed != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    final Entry removed;
     try {
-      removed = await widget.store.deleteEntry(widget.entry.id);
+      await widget.store.deleteEntry(widget.entry.id);
     } on Object catch (error) {
+      // 只有失败才提示：删前已经确认过一次，成功不再打扰（v1.1 起无撤销条）
       if (mounted) {
         messenger.showSnackBar(SnackBar(content: Text('删除失败：$error')));
       }
@@ -95,7 +96,6 @@ class _EntryEditorSheetState extends State<EntryEditorSheet> {
     }
     if (!mounted) return;
     close();
-    messenger.showSnackBar(undoSnackBar(widget.store, removed));
   }
 
   @override
@@ -263,17 +263,3 @@ Future<bool?> showDeleteEntryDialog(BuildContext context) => showDialog<bool>(
       ),
     );
 
-/// 删除后的 toast + 5s 撤销（ui-design §8：撤销是唯一的后悔药）。
-///
-/// `persist: false` 不可省：Flutter 3.47 起，带 action 的 SnackBar 默认
-/// `persist = persist ?? action != null`，即**永不自动关闭**——撤销条会一直
-/// 挂在底部（实测用户可见），5s 窗口形同虚设。显式关闭后 duration 才生效。
-SnackBar undoSnackBar(AppStore store, Entry removed) => SnackBar(
-      content: const Text('已删除'),
-      duration: const Duration(seconds: 5),
-      persist: false,
-      action: SnackBarAction(
-        label: '撤销',
-        onPressed: () => store.restoreEntry(removed),
-      ),
-    );

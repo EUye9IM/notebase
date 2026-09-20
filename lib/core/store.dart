@@ -182,7 +182,7 @@ class AppStore extends CoreChangeNotifier {
         Prefs(theme: _theme, currentNotebookId: Notebook.defaultId),
       );
     }
-    // 原地更新 default 的列表对象：撤销之类的异步续体可能还捕获着它（评审 P3-1）
+    // 原地更新 default 的列表对象：并发的异步续体可能还捕获着它（评审 P3-1）
     defaults
       ..clear()
       ..addAll(merged);
@@ -371,40 +371,20 @@ class AppStore extends CoreChangeNotifier {
     await _replaceEntry(entryId, (e) => e.copyWith(text: t));
   }
 
-  /// 删除条目并返回被删快照，供 UI 层「撤销」使用（ui-design §8）。
-  /// 快照归 store 层管理，UI 不自行缓存条目。
+  /// 删除条目（ui-design §8）。**删了就删了**：v1.1 起不再提供撤销，
+  /// 因此也不再返回可回滚快照——UI 只负责删前确认。
   ///
-  /// **不删除媒体文件**：撤销窗口内仍需要它（删了会让撤销出「媒体已丢失」）。
-  /// 无主媒体的清理见 dev-plan §7 待办。
+  /// **不删除媒体文件**：回收交给「无主媒体清理」统一处理（dev-plan §7），
+  /// 避免每次删除都做一次不可逆的文件删除。
   ///
   /// 条目可能不在当前笔记本（UI 拿着旧 tile 操作时遇到切本竞态），
   /// 因此按 [_locateEntry] 定位，始终在它真正所属的笔记本里修改。
-  Future<Entry> deleteEntry(String entryId) async {
+  Future<void> deleteEntry(String entryId) async {
     final located = _locateEntry(entryId);
     if (located == null) throw ArgumentError('条目不存在: $entryId');
     final (notebookId, list) = located;
     final index = list.indexWhere((e) => e.id == entryId);
-    final removed = list[index];
     await _mutateAndSave(notebookId, list, () => list.removeAt(index));
-    return removed;
-  }
-
-  /// 撤销删除：把条目放回其所属笔记本，按 (createdAt, id) 复位排序。
-  ///
-  /// 若原笔记本已被删除，则落到当前笔记本并重写归属——维持
-  /// 「一条条目恰好属于一个笔记本」不变式（ui-design §2）。
-  /// 幂等：条目已在列表中时不做任何事。
-  Future<void> restoreEntry(Entry entry) async {
-    final exists = _notebooks.any((n) => n.id == entry.notebookId);
-    final targetId = exists ? entry.notebookId : _currentId;
-    final restored =
-        exists ? entry : entry.copyWith(notebookId: targetId);
-    final list = await _loadEntriesOf(targetId);
-    if (list.any((e) => e.id == restored.id)) return;
-    await _mutateAndSave(targetId, list, () {
-      list.add(restored);
-      _sort(list);
-    });
   }
 
   // ---------- 偏好 ----------
@@ -438,7 +418,7 @@ class AppStore extends CoreChangeNotifier {
 
   /// 变更内存 + 落盘：**写盘失败必须回滚内存**，否则留下「内存有、磁盘无」的
   /// 幽灵状态——下一次任意通知它就冒出来，重启又消失（复检 P2）。回滚用
-  /// 原地清空 + 回填，保持列表对象身份（撤销等异步续体可能还持有它）。
+  /// 原地清空 + 回填，保持列表对象身份（并发的异步续体可能还持有它）。
   /// 异常照旧向上抛：调用方负责让用户看到失败（UI 侧 catch + toast）。
   Future<void> _mutateAndSave(
     String notebookId,

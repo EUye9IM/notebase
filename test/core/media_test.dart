@@ -200,10 +200,10 @@ void main() {
       expect(File(temp.absolutePath).existsSync(), isFalse); // 临时文件已移走
       expect(File(finalPath).existsSync(), isTrue);
 
-      final removed = await store.deleteEntry(entry.id);
-      await store.restoreEntry(removed); // 撤销可用：文件还在
+      await store.deleteEntry(entry.id);
 
-      expect(store.entries.single.file, entry.file);
+      // 删除条目**不动**媒体文件：回收交给「无主媒体清理」（dev-plan §7）
+      expect(store.entries, isEmpty);
       expect(File(finalPath).existsSync(), isTrue);
     });
 
