@@ -72,7 +72,13 @@ class _NotebookTile extends StatelessWidget {
   final Notebook notebook;
   final VoidCallback? onDone;
 
+  /// default 不可删除、不可重命名（ui-design §2 不变式）。
   bool get _manageable => notebook.id != Notebook.defaultId;
+
+  /// 只有 default 提供「清空」：其它笔记本用「删除笔记本」（条目并入 default）。
+  List<NotebookAction> get _actions => _manageable
+      ? const [NotebookAction.rename, NotebookAction.delete]
+      : const [NotebookAction.clear];
 
   Future<void> _switch(BuildContext context) async {
     if (notebook.id == store.currentNotebookId) {
@@ -102,14 +108,48 @@ class _NotebookTile extends StatelessWidget {
   }
 
   Future<void> _showMenu(BuildContext context, Offset position) async {
-    final action = await showNotebookMenu(context, position);
+    final action =
+        await showNotebookMenu(context, position, actions: _actions);
     if (action == null || !context.mounted) return;
     switch (action) {
       case NotebookAction.rename:
         await _rename(context);
+      case NotebookAction.clear:
+        await _clear(context);
       case NotebookAction.delete:
         await _delete(context);
     }
+  }
+
+  /// 清空（仅 default）：条目与它们引用的媒体文件一并删除，**不可撤销**
+  /// （ui-design §6）——所以确认文案要把条数与媒体文件数写清楚。
+  Future<void> _clear(BuildContext context) async {
+    final entryCount = await store.entryCountOf(notebook.id);
+    final mediaCount = await store.mediaFileCountOf(notebook.id);
+    if (!context.mounted) return;
+    final confirmed = await showClearNotebookDialog(
+      context,
+      notebook: notebook,
+      entryCount: entryCount,
+      mediaCount: mediaCount,
+    );
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final ({int entries, int media}) result;
+    try {
+      result = await store.clearNotebook(notebook.id);
+    } on Object catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text('清空失败：$error')));
+      return;
+    }
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        '已清空「${notebook.name}」：${result.entries} 条记录'
+        '${result.media > 0 ? '、${result.media} 个媒体文件' : ''}',
+      ),
+      duration: const Duration(seconds: 4),
+    ));
+    onDone?.call(); // 关掉弹层，让清空结果直接可见
   }
 
   Future<void> _rename(BuildContext context) async {
@@ -156,9 +196,8 @@ class _NotebookTile extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       title: Text(notebook.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       onTap: () => _switch(context),
-      onLongPress: _manageable ? () => _showMenu(context, _anchor(context)) : null,
+      onLongPress: () => _showMenu(context, _anchor(context)),
     );
-    if (!_manageable) return tile;
     return GestureDetector(
       onSecondaryTapUp: (details) => _showMenu(context, details.globalPosition),
       child: tile,
@@ -197,11 +236,17 @@ class NewNotebookRow extends StatelessWidget {
   }
 }
 
-enum NotebookAction { rename, delete }
+enum NotebookAction { rename, clear, delete }
 
 /// 桌面右键 / 触屏长按的位置菜单。
+///
+/// default 不可删除、不可重命名，但需要「清空」这个出口（ui-design §6），
+/// 因此它也有菜单，只是只有一项。
 Future<NotebookAction?> showNotebookMenu(
-    BuildContext context, Offset position) async {
+  BuildContext context,
+  Offset position, {
+  required List<NotebookAction> actions,
+}) async {
   final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
   final action = await showMenu<NotebookAction>(
     context: context,
@@ -209,9 +254,16 @@ Future<NotebookAction?> showNotebookMenu(
       position & Size.zero,
       Offset.zero & (overlay?.size ?? Size.zero),
     ),
-    items: const [
-      PopupMenuItem(value: NotebookAction.rename, child: Text('重命名')),
-      PopupMenuItem(value: NotebookAction.delete, child: Text('删除')),
+    items: [
+      for (final action in actions)
+        PopupMenuItem(
+          value: action,
+          child: Text(switch (action) {
+            NotebookAction.rename => '重命名',
+            NotebookAction.clear => '清空',
+            NotebookAction.delete => '删除',
+          }),
+        ),
     ],
   );
   return action;
@@ -288,6 +340,40 @@ class _NameDialogState extends State<_NameDialog> {
     );
   }
 }
+
+/// 清空确认（仅 default，ui-design §6）：破坏性且**不可撤销**，所以文案把
+/// 将永久删除的条数与媒体文件数写清楚，而不是笼统说「其中的记录」。
+Future<bool?> showClearNotebookDialog(
+  BuildContext context, {
+  required Notebook notebook,
+  required int entryCount,
+  required int mediaCount,
+}) =>
+    showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('清空「${notebook.name}」？'),
+        content: Text(
+          entryCount == 0
+              ? '该笔记本已经是空的。'
+              : '其中 $entryCount 条记录将被永久删除'
+                  '${mediaCount > 0 ? '，$mediaCount 个媒体文件（录音 / 图片）也会一并删除' : ''}。\n'
+                  '此操作不可撤销。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: entryCount == 0
+                ? null
+                : () => Navigator.pop(dialogContext, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
 
 /// 删除确认；文案说明非空笔记本的条目去向（ui-design §6：条目永不陪葬）。
 Future<bool?> showDeleteNotebookDialog(

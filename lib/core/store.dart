@@ -70,6 +70,50 @@ class AppStore extends CoreChangeNotifier {
   Future<int> entryCountOf(String notebookId) async =>
       (await _loadEntriesOf(notebookId)).length;
 
+  /// 指定笔记本引用的、**仍然存在**的媒体文件数（清空确认文案用：只说
+  /// 真正会被删掉的数）。
+  Future<int> mediaFileCountOf(String notebookId) async {
+    final list = await _loadEntriesOf(notebookId);
+    var count = 0;
+    for (final entry in list) {
+      final file = entry.file;
+      if (file != null && _storage.mediaExists(file)) count++;
+    }
+    return count;
+  }
+
+  /// 清空笔记本的全部条目，并删除这些条目引用的媒体文件（**不可撤销**）。
+  ///
+  /// ui-design §6：default 不可删除，因此给它这个出口；UI 只对 default 暴露
+  /// （其它笔记本用「删除笔记本」，条目并入 default 而非销毁）。
+  ///
+  /// 失败语义：先落盘「空条目」——失败则回滚内存并抛出，一个文件都不删；
+  /// 成功后再逐个删媒体文件，单个删不掉（占用/权限）不影响其余，也不回滚
+  /// 已清空的条目（剩下的由「无主媒体清理」兜底，dev-plan §7）。
+  Future<({int entries, int media})> clearNotebook(String notebookId) async {
+    if (!_notebooks.any((n) => n.id == notebookId)) {
+      throw ArgumentError('笔记本不存在: $notebookId');
+    }
+    final list = await _loadEntriesOf(notebookId);
+    final files = [
+      for (final entry in list)
+        if (entry.file != null) entry.file!,
+    ];
+    final removed = list.length;
+    await _mutateAndSave(notebookId, list, list.clear);
+
+    var deleted = 0;
+    for (final file in files) {
+      try {
+        await _storage.deleteMedia(file);
+        deleted++;
+      } on Object {
+        // 删不掉就留着：条目已经清空，剩下的由「无主媒体清理」回收
+      }
+    }
+    return (entries: removed, media: deleted);
+  }
+
   // ---------- 笔记本 ----------
 
   /// 新建并切换为当前笔记本（ui-design §6：建完即切换）。

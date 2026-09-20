@@ -137,15 +137,59 @@ void main() {
     expect(store.notebooks.map((n) => n.name), contains('工作区'));
   });
 
-  testWidgets('default 笔记本没有管理菜单', (tester) async {
+  // ui-design §6：default 不可删除、不可重命名，但需要「清空」这个出口，
+  // 因此它有菜单，只是只有一项。
+  testWidgets('default 的菜单只有「清空」，没有重命名 / 删除', (tester) async {
     final store = await AppStore.load(MemoryStorage());
     await pumpApp(tester, store);
 
     await tester.longPress(find.text('default').first);
     await tester.pumpAndSettle();
 
+    expect(find.text('清空'), findsOneWidget);
     expect(find.text('重命名'), findsNothing);
     expect(find.text('删除'), findsNothing);
+  });
+
+  testWidgets('清空 default：确认文案含条数与媒体文件数，条目与媒体一并删除', (tester) async {
+    final storage = MemoryStorage();
+    final store = await AppStore.load(storage);
+    await store.addText('要清掉的');
+    await storage.prepareMediaPath('media/.tmp/a.png');
+    final photo = await store.addMedia(
+      type: EntryType.photo,
+      sourceRelativePath: 'media/.tmp/a.png',
+      extension: 'png',
+    );
+    expect(storage.media.containsKey(photo.file!), isTrue);
+
+    await pumpApp(tester, store);
+    await tester.longPress(find.text('default').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清空'));
+    await tester.pumpAndSettle();
+
+    // 确认文案要把「永久删除什么」写清楚（不可撤销，所以不能笼统）
+    expect(find.textContaining('2 条记录将被永久删除'), findsOneWidget);
+    expect(find.textContaining('1 个媒体文件'), findsOneWidget);
+    expect(find.textContaining('不可撤销'), findsOneWidget);
+
+    await tester.tap(find.text('取消')); // 先取消：什么都不该动
+    await tester.pumpAndSettle();
+    expect(store.entries, hasLength(2));
+    expect(storage.media, isNotEmpty);
+
+    await tester.longPress(find.text('default').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清空'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '清空'));
+    await tester.pumpAndSettle();
+
+    expect(store.entries, isEmpty);
+    expect(storage.media, isEmpty); // 媒体文件一并删除，不留孤儿
+    expect((await AppStore.load(storage)).entries, isEmpty); // 并且落盘
+    expect(find.textContaining('已清空'), findsOneWidget);
   });
 
   // 回归（M6 后评审 P1）：切本在途时弹层已进入退场动画，此时 onDone 里的
