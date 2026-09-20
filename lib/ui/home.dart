@@ -287,7 +287,7 @@ class _HomePageState extends State<HomePage> {
                   IconButton(
                     icon: const Icon(Icons.settings_outlined),
                     tooltip: '设置',
-                    onPressed: () => showSettingsSheet(context, widget.store),
+                    onPressed: () => openSettings(context, widget.store),
                   ),
                 ],
               ),
@@ -326,7 +326,7 @@ class _Sidebar extends StatelessWidget {
           dense: true,
           leading: const Icon(Icons.settings_outlined),
           title: const Text('设置'),
-          onTap: () => showSettingsSheet(context, store),
+          onTap: () => openSettings(context, store),
         ),
       ]),
     );

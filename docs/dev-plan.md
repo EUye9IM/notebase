@@ -39,7 +39,7 @@ lib/
     ├── search_view.dart       # 原地搜索模式（§7）
     ├── editor_sheet.dart      # 条目编辑底 sheet 与字段编辑（§8）
     ├── sheet_nav.dart         # 弹层安全关闭：await 之后只关自己的路由（§10）
-    └── settings_view.dart     # 设置：主题
+    └── settings_view.dart     # 设置页（整页）：主题；后续导出 / 数据维护
 ```
 
 规则：
@@ -272,6 +272,15 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
 其它笔记本用「删除笔记本」，语义是条目并入 default 而非销毁。
 
 变异验证：去掉媒体删除循环 → 用例红（`media/….png` 仍留在登记表里）。
+
+## 6.9 功能变更（设置改为独立整页）
+
+| 变更 | 说明 | 用例 |
+|---|---|---|
+| 设置从底部弹层改为独立整页 | 弹层的扩展性差（导出、媒体清理、AI 接入都要放这里），改为 `Scaffold` 整页，宽窄屏一致；加分区只需往 `ListView` 里追加。页面自己持有 `CoreListenableBridge` 并在 `dispose` 释放，主题切换仍即时生效 | 新增 `settings_test.dart`：窄屏顶栏 ⚙ 打开 → 切「深色」→ 返回壳；宽屏侧栏「设置」打开 → 切「浅色」并断言落盘 |
+
+顺带补上一直缺的设置页 widget 测试（复检指出「settings_view.dart 整体无测试」）。
+入口不变（§11 步数不受影响：设置不在操作步数表里）。
 
 ## 7. 待办与开放问题（登记，勿遗忘）
 
