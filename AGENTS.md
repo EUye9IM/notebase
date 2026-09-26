@@ -165,6 +165,14 @@ lib/
 - 断言要能失败：写完先想「代码坏掉时它会不会照样绿」。弱断言示例（真实踩到、已修）：
   照片搜索用例的查询词用的是**条目 id**（id 从不是搜索字段）→ 恒真；「退出搜索恢复滚动位置」
   进出之间没有任何 store 变更 → 位置本来就不会变。改成能区分的输入才有价值。
+- **widget 测试里的「平台」不是真实运行平台**：`defaultTargetPlatform` 在测试里默认是 **Android**。
+  涉及平台分支时要么用真实运行平台（`dart:io Platform.isX`）并把判定抽成纯函数来测，
+  要么显式 `debugDefaultTargetPlatformOverride` 且**在测试体结束前**还原——`addTearDown` 太晚，
+  框架会在测试体末尾校验 foundation debug 变量并报 "was changed by the test"。
+  （实测教训：一次给 Enter 发送加平台分支，直接让既有「宽屏 Enter 发送」用例变红；
+  那条平台分叉后来也被产品侧回退——Enter 行为按宽度判定，不按平台分叉。）
+- **输入法组字（`composing`）不能当发送**：`_controller.value.composing.isValid` 时按 Enter 是「上屏」，
+  不加守卫会把拼音半成品发成一条记录（回归在 `polish_test.dart`，去掉守卫即红）。
 - **断言「路由被弹掉」要给足帧**：`pump(Duration(milliseconds: 400))` 只走**一帧**，
   被 pop 的路由可能还没走完销毁、仍被 finder 找到，于是**假绿**；这种用例要用
   `pumpAndSettle()`（本坑在弹层路由竞态的回归用例上真实踩到过）。

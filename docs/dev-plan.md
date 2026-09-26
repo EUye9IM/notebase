@@ -107,7 +107,7 @@ lib/
 |---|---|
 | M6 多媒体 | **分段进行中**：M6a 核心媒体层 ✅ / M6b 录音 UI ✅ / M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅。原计划：录音（`record`，Linux 实现已存在）、播放（`audioplayers`）、拍照与相册导入（`image_picker` Linux 桌面支持有限，届时评估 `file_picker` 替代）；媒体文件管理；转写/摘要手动编辑入口 |
 | M7 SQLite | `sqflite` + `sqflite_common_ffi`，`Storage` 换实现；FTS5 |
-| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建。**构建已打通（§6.11）；M8a 应用内取景器已落地（§6.12）**；仍缺 M8b 键盘/IME 适配（相机链路已真机核对，见 §6.12） |
+| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建。**已完成**：构建打通（§6.11）、M8a 应用内取景器（§6.12，已真机核对）、M8b 键盘 / IME 适配（§6.13） |
 | M9 AI | Phase 3：自动转写→摘要、图片描述、语义搜索；接入点已在模型与 UI 预留 |
 
 ## 4. 风险与开放问题
@@ -333,6 +333,23 @@ Future 永不完成 → 流程停在 await、条目永远不进流（表现是 `
 **真机核对（2026-09，NX712J / Android 14）**：用户手测相机链路后反馈无问题（按我给的清单走完：
 📷 直接进取景器、快门即存并回到流、✕ 关闭不留痕、左下「相册」入口可用、右上切换镜头、
 切后台/旋转后预览恢复）。因为本机 `adb install` 受限，验证方式是手动装 APK（见 §6.11）。
+
+## 6.13 功能变更（M8b 键盘 / IME 适配）
+
+| 变更 | 说明 | 用例 |
+|---|---|---|
+| 输入法组字中不发送 | `_controller.value.composing.isValid` 时 Enter 交给输入法「上屏」，否则拼音半成品会变成一条记录（去掉守卫即红） | `polish_test.dart`「输入法组字中按 Enter 不发送（composing 守卫）」 |
+| 软键盘动作键与顶起 | `textInputAction: TextInputAction.newline`（动作键显示「换行」）；清单里的 `adjustResize` 保证输入栏随键盘顶起 | 真机手测 |
+| 拦截层不抢焦点 | `Focus(canRequestFocus: false, skipTraversal: true)`：Tab 遍历不会在包装层多停一站 | — |
+
+**试过又回退的方案（记下来免得再试）**：M8b 一度把 Enter 发送收窄为「桌面端 + 宽屏」，
+触摸平台（Android / iOS）一律换行。产品侧否决了这条平台分叉——**要求同一宽度下行为一致**，
+最终规则仍是 §5.1 的「窄屏 Enter 换行 / 宽屏 Enter 发送」，与平台无关。
+
+**一个测试环境的坑（已记进 AGENTS.md）**：`defaultTargetPlatform` 在 widget 测试里默认是 **Android**
+（实测：那次平台分叉一加上，「宽屏 Enter 发送」的既有用例直接挂）。涉及平台分支时要么用真实平台
+（`dart:io Platform.isX`）并把判定抽成纯函数测，要么显式覆盖 `debugDefaultTargetPlatformOverride`
+并**在测试体结束前**还原——`addTearDown` 太晚，框架会在测试体末尾校验 foundation debug 变量并报错。
 
 ## 7. 待办与开放问题（登记，勿遗忘）
 

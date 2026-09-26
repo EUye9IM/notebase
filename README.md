@@ -89,7 +89,7 @@
 - Flutter SDK（stable）
 - Linux 桌面构建需 GTK / Ninja 工具链（`flutter doctor` 自查）
 - Android：可构建（debug / release APK），工具链装在用户目录，见 `AGENTS.md` 的环境说明；
-  键盘/IME 适配属 M8（应用内取景器 M8a 已落地并真机核对）
+  M8 已完成：应用内取景器（M8a）与键盘 / IME 适配（M8b，含输入法组字守卫）
 
 ### 快速启动
 

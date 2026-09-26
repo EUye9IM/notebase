@@ -271,6 +271,9 @@ class _InputBarState extends State<InputBar> {
       focusNode: widget.focusNode,
       autofocus: widget.wide,
       maxLines: null,
+      // 软键盘的动作键固定是「换行」：移动端发送只走 ➤（§5.1）。
+      // 桌面端宽屏的 Enter 发送由下面那层 Focus 在键事件阶段截获，与这里无关。
+      textInputAction: TextInputAction.newline,
       decoration: const InputDecoration(
         hintText: '记点什么…',
         border: InputBorder.none,
@@ -280,15 +283,25 @@ class _InputBarState extends State<InputBar> {
 
     // 宽屏：拦下不带修饰键的 Enter 改为发送；Shift+Enter 落回默认换行。
     // 本包装位于 TextField 与 MaterialApp 级默认文本快捷键之间，先于换行处理。
+    //
+    // 规则**不按平台分叉**（§5.1）：同一宽度下桌面与移动端行为一致。
+    // 两条不该发送的例外：
+    // - 输入法组字中（`composing` 有效）：此时的 Enter 是「上屏」，不是「发送」，
+    //   否则会把拼音半成品当成一条记录；
+    // - 按住不放的重复事件：`event is KeyDownEvent` 天然过滤 KeyRepeatEvent。
     if (widget.wide) {
       field = Focus(
+        // 只是键事件的拦截层：不参与焦点遍历，否则 Tab 会多停一站（那里没有输入连接）
+        canRequestFocus: false,
+        skipTraversal: true,
         onKeyEvent: (node, event) {
           final isEnter =
               event.logicalKey == LogicalKeyboardKey.enter ||
               event.logicalKey == LogicalKeyboardKey.numpadEnter;
           if (event is KeyDownEvent &&
               isEnter &&
-              !HardwareKeyboard.instance.isShiftPressed) {
+              !HardwareKeyboard.instance.isShiftPressed &&
+              !_controller.value.composing.isValid) {
             _send();
             return KeyEventResult.handled;
           }

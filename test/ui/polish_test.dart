@@ -246,6 +246,27 @@ void main() {
       expect(store.entries, isEmpty); // 仍是换行，未发送
     });
 
+    // 输入法组字中（composing 有效）时按 Enter 是「上屏」，不是「发送」；
+    // 不加这条守卫会把拼音半成品当成一条记录发出去。
+    testWidgets('输入法组字中按 Enter 不发送（composing 守卫）', (tester) async {
+      final store = await AppStore.load(MemoryStorage());
+      await pumpApp(tester, store); // 桌面宽屏：正常情况下 Enter 是发送
+
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      // 真实输入法路径：带上 composing 区间的编辑值（"拼" 处于组字态）
+      tester.testTextInput.updateEditingValue(const TextEditingValue(
+        text: '拼',
+        selection: TextSelection.collapsed(offset: 1),
+        composing: TextRange(start: 0, end: 1),
+      ));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(store.entries, isEmpty); // 组字中的 Enter 不该发送
+    });
+
     testWidgets('窄屏不自动弹键盘；宽屏自动聚焦输入栏', (tester) async {
       // 宽屏（默认 800x600）
       final wideStore = await AppStore.load(MemoryStorage());
