@@ -15,7 +15,7 @@
 | 核心 | 纯 Dart，零 Flutter 依赖 | 模型 / 存储 / 搜索 / 状态，全部在 `lib/core/`，可脱离 Flutter 测试与复用 |
 | 存储 | JSON 文件（`Storage` 接口收口） | `notebooks.json` + `nb_<id>.json` + `prefs.json` + `media/<条目 id>.<ext>`；SQLite 迁移后置（M7） |
 | 状态 | 自实现最小 `Listenable` | 不依赖 flutter/foundation，core 保持纯净 |
-| 多媒体 | `record` / `audioplayers` / `file_selector` | 录音 ogg-Opus（Linux 后端 parecord+ffmpeg）、GStreamer 播放、GTK 文件对话框选图；Linux 无应用内取景器 |
+| 多媒体 | `record` / `audioplayers` / `file_selector` / `camera` | 录音 ogg-Opus（Linux 后端 parecord+ffmpeg）、GStreamer 播放、GTK 文件对话框选图；应用内取景器见 Android（M8a），Linux 无 camera 插件支持 |
 | 网络 / AI | 暂不引入 | 后置到 Phase 3；转写 / 摘要字段已预留，先支持手动编辑 |
 
 ## 阶段设计
@@ -41,7 +41,7 @@
 - ✅ 播放：`audioplayers`（GStreamer），列表内联播放/暂停 + 进度
 - ✅ 转写 / 摘要的手动编辑（§8 长按菜单：编辑转写 / 编辑摘要）
 - ✅ 图片导入（`file_selector` 的 GTK 原生对话框；只复制不移动用户原图）、缩略图与全屏查看器
-- ⏳ 媒体文件清理（无主媒体回收）；应用内取景器随 Android（M8，Linux 无 camera 插件支持）
+- ✅ 应用内取景器（Android，M8a，已真机核对）；⏳ 媒体文件清理（无主媒体回收）
 
 ### Phase 2 — 存储升级与数据出口
 
@@ -89,7 +89,7 @@
 - Flutter SDK（stable）
 - Linux 桌面构建需 GTK / Ninja 工具链（`flutter doctor` 自查）
 - Android：可构建（debug / release APK），工具链装在用户目录，见 `AGENTS.md` 的环境说明；
-  键盘/IME 适配、应用内取景器与真机核对属 M8
+  键盘/IME 适配属 M8（应用内取景器 M8a 已落地并真机核对）
 
 ### 快速启动
 

@@ -59,6 +59,8 @@ flutter build apk --release                # → 51MB，用模板的 debug 签�
 - **真机已核对**（2026-09）：nubia NX712J / Android 14 (API 34) / arm64-v8a / 逻辑宽约 420dp（走窄屏布局）。
   手测通过：记文字、录音、**播放录音（ogg/Opus 可用）**、导入图片、长按删除、default 清空、设置页主题、前后台切换；
   设备上 APK 与本地产物 sha256 一致。M6 选 ogg/Opus 的跨平台风险点由此解除。
+  后续 M8a 应用内取景器亦已真机手测通过（📷 进取景器 → 快门即存 → 入流、✕ 关闭、相册入口、
+  切换镜头、前后台恢复）——验证方式都是手动装 APK（见下条 `adb install` 限制）。
 - **本机 `adb install` 不可用**（nubia ROM 的「USB 安装」未开，用户反馈暂时开不了）：
   `adb install [-r] [--user 0]` → `SecurityException: Caller has no access to session -1`；
   显式会话（`pm install-create` 成功 → `install-write`/`install-commit`）→ `Caller has no access to session N`。
