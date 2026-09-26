@@ -306,7 +306,9 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
 | 产物 | `flutter build apk --debug` → 154MB（arm64-v8a / armeabi-v7a / x86_64）；`--release` → 51.5MB（模板 debug 签名） |
 | 验证 | 合并后的清单：minSdk 24 / targetSdk 36 / 两项录音权限就位；构建日志无警告。**未接真机**（`adb devices` 为空），Android 上的运行时行为未验证 |
 | 环境坑 | `services.gradle.org` 307 → GitHub releases（本机不通）→ 预置 wrapper 缓存（腾讯镜像）；`flutter doctor` 的 `maven.google.com` 探测失败是假警报（Gradle 走 dl.google.com，可达）。详见 AGENTS.md |
-| M8 仍缺 | 输入栏键盘 / IME 适配（Android 上 Enter 该换行还是发送、软键盘顶起布局）、应用内取景器（camera 插件）、真机核对、release 签名（keystore） |
+| 真机核对 | ✅ 2026-09 于 nubia NX712J（Android 14 / API 34，arm64-v8a，逻辑宽约 420dp → 窄屏布局）手测通过：记文字、录音、**播放录音**、导入图片、长按删除、default 清空、设置页主题、前后台切换；设备上 APK 与本地产物 sha256 一致。**ogg/Opus 在 Android 上可播放**——M6 选型（当初理由是 Linux GStreamer 能解）的跨平台风险点解除 |
+| 本机 `adb install` 受限 | `SecurityException: Caller has no access to session -1`（会话能建、写入被拒）＝ ROM 的「USB 安装」未开，用户反馈暂时开不了。替代路径：`adb push` 到 `/sdcard/Download/` + 文件管理点装（已验证）。受影响：`flutter run -d`、`flutter test integration_test -d`、debug+`run-as` 读数据目录；`--no-streaming`/`--user 0`/关安装校验均无效 |
+| M8 仍缺 | 输入栏键盘 / IME 适配（Android 上 Enter 该换行还是发送、软键盘顶起布局）、应用内取景器（camera 插件）、release 签名（keystore）、以及上面受限的自动化验证手段 |
 
 ## 7. 待办与开放问题（登记，勿遗忘）
 
@@ -319,9 +321,9 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
 - 流渲染无虚拟化（`SingleChildScrollView + Column`），条目上千需换 `ListView.builder`。
 - JSON 全量写的性能上限 → 触发时提前做 M7（SQLite）。
 - 输入栏草稿仅内存（重启即失），如需持久化再定。
-- **真机手动核对**：应用内完整链路（录音 → 播放；选图 → 缩略图 → 查看器）尚未在真机手点过；
-  插件层已由 M6 spike 与构建验证，widget 层因 fake-async 限制不覆盖真实文件 I/O。
-  Android 侧同理：APK 能构建（§6.11），但没有设备连过，运行时行为完全未验证。
+- **真机手动核对**：**Android 侧已完成**（§6.11：NX712J / Android 14 手测通过，含录音→播放、导入图片、
+  删除、清空、主题、前后台）。**Linux 桌面端**仍建议照 §11 逐项手点一遍——日常使用已覆盖录音与导图，
+  但「播放 → 进度条」「缩略图 → 全屏查看器」未逐项确认过。
 - **多实例无数据目录锁**（复检登记，未修）：写队列与唯一 tmp 名都是**进程内**的，
   两个实例同时开着会各自全量覆盖写，后写覆盖前写 → 一边新记的条目静默消失
   （`linux/runner/my_application.cc` 用的是 `G_APPLICATION_NON_UNIQUE`）。

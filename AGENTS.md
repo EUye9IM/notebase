@@ -56,7 +56,17 @@ flutter build apk --release                # → 51MB，用模板的 debug 签�
   `https://dl.google.com/dl/android/maven2`，本机可达 → 不需要配 Maven 镜像。
 - `INTERNET` 权限只在 debug 清单里（Flutter 调试要连 VM service）；release 清单没有——
   将来接远程 AI 必须在 `src/main/AndroidManifest.xml` 显式声明。
-- **未接真机**（`adb devices` 为空）：APK 能构建，Android 上的运行时行为尚未验证。
+- **真机已核对**（2026-09）：nubia NX712J / Android 14 (API 34) / arm64-v8a / 逻辑宽约 420dp（走窄屏布局）。
+  手测通过：记文字、录音、**播放录音（ogg/Opus 可用）**、导入图片、长按删除、default 清空、设置页主题、前后台切换；
+  设备上 APK 与本地产物 sha256 一致。M6 选 ogg/Opus 的跨平台风险点由此解除。
+- **本机 `adb install` 不可用**（nubia ROM 的「USB 安装」未开，用户反馈暂时开不了）：
+  `adb install [-r] [--user 0]` → `SecurityException: Caller has no access to session -1`；
+  显式会话（`pm install-create` 成功 → `install-write`/`install-commit`）→ `Caller has no access to session N`。
+  有效的替代：`adb push` APK 到 `/sdcard/Download/`，手机上用文件管理点装（已验证）。
+  受影响而**暂时做不了**的自动化：`flutter run -d <device>`、`flutter test integration_test -d <device>`、
+  「装 debug 包用 `run-as` 读 `files/` 断言落盘」。`--no-streaming`、`--user 0`、关安装校验都试过，无效。
+- **Flutter 的语义树默认不暴露给 uiautomator**：`adb shell uiautomator dump` 只看到 Android 外壳
+  （FrameLayout → FlutterView），读不到界面文字；想自动断言 UI 得先启用无障碍服务，否则只能靠人眼。
 
 应用数据目录（调试用，JSON 可直接看/改）：
 `~/.local/share/com.example.notebase/` → `notebooks.json`、`nb_<id>.json`、`prefs.json`。
