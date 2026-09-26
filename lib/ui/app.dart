@@ -4,6 +4,7 @@ import '../core/model.dart';
 import '../core/store.dart';
 import 'home.dart';
 import 'listenable_bridge.dart';
+import 'camera_capture.dart';
 import 'media_importer.dart';
 import 'media_player.dart';
 import 'media_recorder.dart';
@@ -17,6 +18,7 @@ class NotebaseApp extends StatefulWidget {
     this.recorder,
     this.player,
     this.importer,
+    this.camera,
   });
 
   final AppStore store;
@@ -29,6 +31,9 @@ class NotebaseApp extends StatefulWidget {
 
   /// 图片导入能力（§5.3）。为 null 时 📷 置灰。
   final MediaImporter? importer;
+
+  /// 相机拍照能力（§5.3）。为 null / 无相机时，「📷」退回文件导入。
+  final CameraCapture? camera;
 
   /// 启动期数据损坏等需要告知用户的信息（ui-design §10），可关闭。
   final String? startupNotice;
@@ -91,6 +96,7 @@ class _NotebaseAppState extends State<NotebaseApp> {
             startupNotice: widget.startupNotice,
             recorder: widget.recorder,
             importer: widget.importer,
+            camera: widget.camera,
             playback: _playback,
           ),
         ),

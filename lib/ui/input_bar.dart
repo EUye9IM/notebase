@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/model.dart';
 import '../core/store.dart';
+import 'camera_capture.dart';
 import 'media_importer.dart';
 import 'recording_session.dart';
 
@@ -43,6 +45,7 @@ class InputBar extends StatefulWidget {
     this.drafts,
     required this.session,
     this.importer,
+    this.camera,
   });
 
   final AppStore store;
@@ -60,6 +63,9 @@ class InputBar extends StatefulWidget {
 
   /// 图片导入能力（§5.3）。为 null 时 📷 置灰。
   final MediaImporter? importer;
+
+  /// 相机拍照能力（§5.3）。为 null（Linux 桌面 / 无相机）时 📷 退回文件导入。
+  final CameraCapture? camera;
 
   @override
   State<InputBar> createState() => _InputBarState();
@@ -132,6 +138,62 @@ class _InputBarState extends State<InputBar> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
+  }
+
+  /// 📷 的统一入口（§5.3）：有相机能力 → 取景器拍照；否则 → 文件导入。
+  ///
+  /// 两条路的落盘语义不同：相机把照片**直接写进 core 给的临时落点**（`prepareMediaTemp`），
+  /// 之后 `addMedia` 归档（移动，与录音同一条路，UI 不搬文件）；相册选中的是**用户的文件**，
+  /// 走 `importPhoto`（只复制，原图留在原处）。
+  Future<void> _acquirePhoto() async {
+    final camera = widget.camera;
+    if (camera == null) {
+      await _importPhoto();
+      return;
+    }
+    if (_importing) return;
+    setState(() => _importing = true);
+    ({String absolutePath, String relativePath})? temp;
+    try {
+      // 相机插件拍出来就是 JPEG；扩展名先写死，换插件/换格式时改这里一处。
+      temp = await widget.store.prepareMediaTemp('jpg');
+      if (!mounted) return; // 落点准备好之前页面已销毁（跨 720 重建 / 退出）
+      final shot = await camera.open(
+        context,
+        targetPath: temp.absolutePath,
+        gallery: widget.importer,
+      );
+      if (shot == null) {
+        // 用户取消：清掉空落点（可能已经写了文件，一并删）
+        await widget.store.discardMedia(temp.relativePath);
+        return;
+      }
+      if (shot.fromGallery) {
+        await widget.store.discardMedia(temp.relativePath); // 相机落点用不上了
+        await widget.store.importPhoto(
+          sourceAbsolutePath: shot.path,
+          extension: imageExtensionOf(shot.path),
+        );
+        return;
+      }
+      await widget.store.addMedia(
+        type: EntryType.photo,
+        sourceRelativePath: temp.relativePath,
+        extension: 'jpg',
+      );
+    } on Object catch (error) {
+      final pending = temp;
+      if (pending != null) {
+        await widget.store.discardMedia(pending.relativePath); // 失败不留孤儿
+      }
+      _toast('拍照失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() => _importing = false);
+      } else {
+        _importing = false;
+      }
+    }
   }
 
   /// 图片导入（§5.3）：点 📷 → 选图 → 保存并关闭 → 流内立即可见。
@@ -251,10 +313,13 @@ class _InputBarState extends State<InputBar> {
                   children: [
                     IconButton(
                       icon: const Icon(Icons.photo_outlined),
-                      tooltip: '导入图片',
-                      onPressed: widget.importer == null || _importing
-                          ? null
-                          : _importPhoto,
+                      // 可发现性：有相机就是「拍照」，没有就是「导入图片」（§5.3）
+                      tooltip: widget.camera != null ? '拍照' : '导入图片',
+                      onPressed:
+                          (widget.camera == null && widget.importer == null) ||
+                                  _importing
+                              ? null
+                              : _acquirePhoto,
                     ),
                     IconButton(
                       icon: const Icon(Icons.mic_none),

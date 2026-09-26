@@ -107,7 +107,7 @@ lib/
 |---|---|
 | M6 多媒体 | **分段进行中**：M6a 核心媒体层 ✅ / M6b 录音 UI ✅ / M6c 播放与媒体渲染 ✅ / M6d 图片导入 ✅ / M6e 转写摘要编辑 ✅。原计划：录音（`record`，Linux 实现已存在）、播放（`audioplayers`）、拍照与相册导入（`image_picker` Linux 桌面支持有限，届时评估 `file_picker` 替代）；媒体文件管理；转写/摘要手动编辑入口 |
 | M7 SQLite | `sqflite` + `sqflite_common_ffi`，`Storage` 换实现；FTS5 |
-| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建。**构建已打通，见 §6.11** |
+| M8 Android | 权限（麦克风/相机）、输入栏键盘适配、真机构建。**构建已打通（§6.11）；M8a 应用内取景器已落地（§6.12）**；仍缺 M8b 键盘/IME、相机的真机核对 |
 | M9 AI | Phase 3：自动转写→摘要、图片描述、语义搜索；接入点已在模型与 UI 预留 |
 
 ## 4. 风险与开放问题
@@ -309,6 +309,28 @@ core 侧新增 `AppStore.clearNotebook`（先落盘空条目、成功后再逐�
 | 真机核对 | ✅ 2026-09 于 nubia NX712J（Android 14 / API 34，arm64-v8a，逻辑宽约 420dp → 窄屏布局）手测通过：记文字、录音、**播放录音**、导入图片、长按删除、default 清空、设置页主题、前后台切换；设备上 APK 与本地产物 sha256 一致。**ogg/Opus 在 Android 上可播放**——M6 选型（当初理由是 Linux GStreamer 能解）的跨平台风险点解除 |
 | 本机 `adb install` 受限 | `SecurityException: Caller has no access to session -1`（会话能建、写入被拒）＝ ROM 的「USB 安装」未开，用户反馈暂时开不了。替代路径：`adb push` 到 `/sdcard/Download/` + 文件管理点装（已验证）。受影响：`flutter run -d`、`flutter test integration_test -d`、debug+`run-as` 读数据目录；`--no-streaming`/`--user 0`/关安装校验均无效 |
 | M8 仍缺 | 输入栏键盘 / IME 适配（Android 上 Enter 该换行还是发送、软键盘顶起布局）、应用内取景器（camera 插件）、release 签名（keystore）、以及上面受限的自动化验证手段 |
+
+## 6.12 功能变更（M8a 应用内取景器）
+
+按 ui-design §5.3 的新版契约落地（Android/iOS 走取景器，Linux 仍走文件导入）：
+
+| 项 | 内容 |
+|---|---|
+| 新文件 | `lib/ui/camera_capture.dart`（`CameraCapture` 抽象 + `CameraSession` 抽象 + `camera` 插件实现）、`lib/ui/camera_view.dart`（整屏取景器 + 快门） |
+| 依赖 | `camera: ^0.11.0`（解析到 0.11.4，Android 走 camera_android_camerax） |
+| 入口 | 📷 语义随能力变：有相机 =「拍照」，无相机 =「导入图片」；`main.dart` 无条件注入 `CameraCaptureImpl`，`available()` 在 Linux 返回 false 自动降级——**不改步数与控件数量**（§11 不变） |
+| 落盘 | 相机照片写进 core 给的临时落点 `media/.tmp/<uid>.jpg` → `addMedia` 归档（移动，与录音同路）；相册导入仍 `importPhoto`（复制，原图留在原处） |
+| 权限/失败 | 拒绝权限 → 取景器内可读文案 + 隐藏快门；相机打不开 → 同样给原因；快门在途禁用（防重入）；页面销毁释放相机 |
+| 权限声明 | `android/.../AndroidManifest.xml`：`CAMERA` + `<uses-feature android:required="false">`（无相机设备也能装） |
+| 测试 | 新增 `test/ui/camera_test.dart`：11 条（统一入口 5 + 取景器状态机 6：快门返回、✕ 不拍、权限拒绝、连点防重入、拍照失败留在页内、相册分支） |
+| 契约 | ui-design §5.3 重写为可实现细节（布局、权限、落盘、失败）；§12 把「应用内取景器」标为已落地，仍待定：闪光灯 / 锁竖屏 / 多选 |
+
+**踩坑记录**：最初把「搬到 core 落点」写在 UI 里（`File.rename`），widget 测试里真实 I/O 的
+Future 永不完成 → 流程停在 await、条目永远不进流（表现是 `entries` 为空且**没有**失败提示）。
+改成让 `CameraSession.takePicture(targetPath)` 负责写入，UI 只传落点；真实 I/O 与插件细节
+一起收在实现层，测试注入假会话。这条老坑在 AGENTS.md 里已有，但仍会以新形式重现。
+
+**未验证**：相机流程尚未在真机核对（用户当前 `adb install` 受限，只能手动装 APK 验证）。
 
 ## 7. 待办与开放问题（登记，勿遗忘）
 

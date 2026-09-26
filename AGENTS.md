@@ -65,6 +65,14 @@ flutter build apk --release                # → 51MB，用模板的 debug 签�
   有效的替代：`adb push` APK 到 `/sdcard/Download/`，手机上用文件管理点装（已验证）。
   受影响而**暂时做不了**的自动化：`flutter run -d <device>`、`flutter test integration_test -d <device>`、
   「装 debug 包用 `run-as` 读 `files/` 断言落盘」。`--no-streaming`、`--user 0`、关安装校验都试过，无效。
+- **相机（M8）**：`camera` 插件只在 Android/iOS 可用 → `CameraCaptureImpl` 经 `main.dart` 注入，
+  Linux 上 `available()` 返回 false，「📷」自动退回文件导入（`ui-design` §5.3）；
+  真机需 `CAMERA` 权限（已在 main 清单声明，`uses-feature required=false`）。
+  取景器的相机会话抽在 `CameraSession` 之后，widget 测试注入假会话即可驱动整页状态机。
+- **`await` 真实文件 I/O 会在 widget 测试里卡住**（本仓的老坑，M8 相机改造又踩一次）：
+  最初把「把相机临时文件搬到 core 落点」写在 UI 里（`File.rename`），于是流程停在 await 上、
+  条目永远不进流。现在把搬运放进 `PluginCameraSession.takePicture(targetPath)`——真实 I/O 只留在
+  插件实现里，UI 只传递 core 给的落点。
 - **Flutter 的语义树默认不暴露给 uiautomator**：`adb shell uiautomator dump` 只看到 Android 外壳
   （FrameLayout → FlutterView），读不到界面文字；想自动断言 UI 得先启用无障碍服务，否则只能靠人眼。
 
@@ -79,7 +87,8 @@ lib/
 ├── ui/      Flutter：app / home / stream_view / input_bar / notebook_list /
 │            search_view / editor_sheet / sheet_nav / settings_view / listenable_bridge /
 │            media_recorder（录音抽象）/ media_player（播放编排）/ recording_session（录音会话）/
-│            media_importer（选图抽象）/ photo_view（缩略图与查看器）/ startup_views（启动视图）
+│            media_importer（选图抽象）/ camera_capture（拍照抽象 + 相机会话）/
+│            camera_view（取景器）/ photo_view（缩略图与查看器）/ startup_views（启动视图）
 └── main.dart  入口：注入应用目录 → 加载 AppStore → 启动
 ```
 

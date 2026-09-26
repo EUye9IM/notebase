@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/store.dart';
 import 'input_bar.dart';
+import 'camera_capture.dart';
 import 'media_importer.dart';
 import 'media_player.dart';
 import 'media_recorder.dart';
@@ -28,6 +29,7 @@ class HomePage extends StatefulWidget {
     this.startupNotice,
     this.recorder,
     this.importer,
+    this.camera,
     this.playback,
   });
 
@@ -38,6 +40,9 @@ class HomePage extends StatefulWidget {
 
   /// 图片导入能力，透传给输入栏（§5.3）。
   final MediaImporter? importer;
+
+  /// 相机拍照能力，透传给输入栏（§5.3）。
+  final CameraCapture? camera;
 
   /// 播放编排：切笔记本时停播，避免「声音继续但当前本没有任何播放控件」。
   final PlaybackController? playback;
@@ -223,6 +228,7 @@ class _HomePageState extends State<HomePage> {
                       drafts: _drafts,
                       session: _recording,
                       importer: widget.importer,
+                      camera: widget.camera,
                     ),
                   ]),
                 ),
@@ -301,6 +307,7 @@ class _HomePageState extends State<HomePage> {
             drafts: _drafts,
             session: _recording,
             importer: widget.importer,
+            camera: widget.camera,
           ),
         ]),
       );
